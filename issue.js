@@ -34,7 +34,7 @@ async function addVeracodeIssue(options, issue) {
     .then( async result => {
         console.log(`Issue successfully created, result: ${result.status}`);
         var issue_number = result.data.number
-        if ( issue.pr_link != "" ){
+        if ( (issue.pr_link != "" ) && !(issue.pr_link === undefined)) {
             console.log('Running on a PR, adding PR to the issue.')
             //console.log('pr_link: '+issue.pr_link+'\nissue_number: '+issue_number)
         
