@@ -92,7 +92,7 @@ source-base-path-2: "^WEB-INF:src/main/webapp/WEB-INF"
           name: filtered-results
 
       - name: import flaws as issues
-        uses: veracode/veracode-flaws-to-issues@v2.1.0
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
         with:
           scan-results-json: 'filtered_results.json'
 ```
@@ -142,7 +142,7 @@ source-base-path-2: "^WEB-INF:src/main/webapp/WEB-INF"
           path: /tmp
 
       - name: import flaws as issues
-        uses: veracode/veracode-flaws-to-issues@v2.1.0
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
         with:
           scan-results-json: '/tmp/policy_flaws.json'
 ```

@@ -16,8 +16,9 @@ try {
     const source_base_path_2 = core.getInput('source_base_path_2'); 
     const source_base_path_3 = core.getInput('source_base_path_3');
     const fail_build = core.getInput('fail_build');
+    const debug = core.getInput('debug')
     const commit_hash = process.env.GITHUB_SHA;
-    console.log('resultsFiel: '+resultsFile+'\nwaitTime: '+waitTime+'\nsource_base_path_1: '+source_base_path_1+'\nsource_base_path_2: '+source_base_path_2+'\nsource_base_path_3: '+source_base_path_3+'\ncommit_hash: '+commit_hash)
+    console.log('resultsFile: '+resultsFile+'\nwaitTime: '+waitTime+'\nsource_base_path_1: '+source_base_path_1+'\nsource_base_path_2: '+source_base_path_2+'\nsource_base_path_3: '+source_base_path_3+'\ncommit_hash: '+commit_hash+'\ndebug: '+debug)
 
     // other params
     const owner = github.context.repo.owner;
@@ -25,17 +26,33 @@ try {
 
     core.info('check if we run on a pull request')
     let pullRequest = process.env.GITHUB_REF
-    const isPR = pullRequest.indexOf("pull")
 
-    console.log('We run on a PR and PR ID is '+isPR)
+    if ( debug == "true" ){
+        core.info('#### DEBUG START ####')
+        core.info('index.js')
+        core.info(pullRequest)
+        core.info(JSON.stringify(process.env))
+        core.info('#### DEBUG END ####')
+    }
+    const isPR = pullRequest.indexOf("pull")
 
     var pr_context
     var pr_commentID
+
 
    if ( isPR >= 1 ){
         core.info("This run is part of a PR, should add some PR links")
         pr_context = github.context
         pr_commentID = pr_context.payload.pull_request.number
+   }
+   else {
+    if ( debug == "true" ){
+        core.info('#### DEBUG START ####')
+        core.info('index.js')
+        core.info("isPR?: "+ isPR)
+        core.info('#### DEBUG END ####')
+    }
+    core.info("We don't run on a PR")
    }
 
 
@@ -52,7 +69,8 @@ try {
          commit_hash: commit_hash,
          isPR: isPR,
          pr_commentID: pr_commentID,
-         fail_build: fail_build
+         fail_build: fail_build,
+         debug: debug
         }
     )
 

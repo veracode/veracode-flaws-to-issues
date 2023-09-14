@@ -23,6 +23,8 @@ async function importFlaws(options) {
     const source_base_path_3 = options.source_base_path_3;
     const commit_hash = options.commit_hash;
     const fail_build = options.fail_build;
+    const isPR = options.isPR
+    const debug = options.debug
     var internal_flaw_count = 0
     var flawData;
 
@@ -72,6 +74,12 @@ async function importFlaws(options) {
             console.log(`Done.  ${count} flaws processed.`);
         })
     } else {
+        if ( debug == "true" ){
+            core.info('#### DEBUG START ####')
+            core.info('importer.js')
+            console.log("isPr?: "+isPR)
+            core.info('#### DEBUG END ####')
+        }
         await processPolicyFlaws(options, flawData)
         .then (count => {
             console.log(`Done.  ${count} flaws processed.`);

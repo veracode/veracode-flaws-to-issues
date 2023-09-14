@@ -25,6 +25,9 @@ inputs:
   fail_build:
     description: fail pipeline upon findings (true | false)
     required: false
+  debug:
+    description: enable debug logging
+    required: false
 
 runs:
   using: 'node16'
