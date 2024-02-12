@@ -22,6 +22,9 @@ inputs:
   source_base_path_3:
     description: 'Rewrite 3'
     required: false
+  repo_owner:
+    description: 'repo owner'
+    required: false
   fail_build:
     description: fail pipeline upon findings (true | false)
     required: false

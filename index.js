@@ -20,24 +20,44 @@ try {
     const commit_hash = process.env.GITHUB_SHA;
     console.log('resultsFile: '+resultsFile+'\nwaitTime: '+waitTime+'\nsource_base_path_1: '+source_base_path_1+'\nsource_base_path_2: '+source_base_path_2+'\nsource_base_path_3: '+source_base_path_3+'\ncommit_hash: '+commit_hash+'\ndebug: '+debug)
 
+
+    let owner
+    let repo
+
     // other params
-    const owner = github.context.repo.owner;
-    const repo = github.context.repo.repo;
-
-    core.info('check if we run on a pull request')
-    let pullRequest = process.env.GITHUB_REF
-
-    if ( debug == "true" ){
-        core.info('#### DEBUG START ####')
-        core.info('index.js')
-        core.info(pullRequest)
-        core.info(JSON.stringify(process.env))
-        core.info('#### DEBUG END ####')
+    if ( core.getInput('repo_owner') && core.getInput('repo_name') ){
+        owner = core.getInput('repo_owner');
+        console.log('Owner: '+core.getInput('repo_owner'))
+        repo = core.getInput('repo_name');
+        console.log('Repo: '+core.getInput('repo_name'))
     }
-    const isPR = pullRequest.indexOf("pull")
+    else {
+        owner = github.context.repo.owner;
+        repo = github.context.repo.repo;
+    }
 
-    var pr_context
-    var pr_commentID
+    console.log('owner = '+owner);
+    console.log('repo = '+repo);
+
+    if ( core.getInput('repo_owner') && core.getInput('repo_name') ){
+        isPR = 0
+    }
+    else {
+        core.info('check if we run on a pull request')
+        let pullRequest = process.env.GITHUB_REF
+
+        if ( debug == "true" ){
+            core.info('#### DEBUG START ####')
+            core.info('index.js')
+            core.info(pullRequest)
+            core.info(JSON.stringify(process.env))
+            core.info('#### DEBUG END ####')
+        }
+        const isPR = pullRequest.indexOf("pull")
+
+        var pr_context
+        var pr_commentID
+    }
 
 
    if ( isPR >= 1 ){

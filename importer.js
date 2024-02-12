@@ -66,6 +66,7 @@ async function importFlaws(options) {
 
     label.buildSeverityXref();          // TODO: cleanup, merge into label init?
 
+    
     // process the flaws
     if(scanType == 'pipeline') {
         await processPipelineFlaws(options, flawData)
