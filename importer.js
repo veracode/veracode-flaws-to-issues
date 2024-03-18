@@ -43,6 +43,10 @@ async function importFlaws(options) {
         if(fs.existsSync(resultsFile)) {
             console.log(`Processing file: ${resultsFile}`);
             flawData = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
+            const flawCountFromFile = flawData.length;
+            if (flawCountFromFile == 0) {
+                throw `No flaws found in file: ${resultsFile}`;
+            }
         } else {
             throw `Unable to locate scan results file: ${resultsFile}`;
         }
