@@ -239,15 +239,20 @@ async function processPipelineFlaws(options, flawData) {
             console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
 
 
-            if( orgPath1[0].test(filename)) {
+            escapedOrgPath1 = orgPath1[0].replace(/^(\^+)/, '\\$1');
+            escapedOrgPath2 = orgPath2[0].replace(/^(\^+)/, '\\$1');
+            escapedOrgPath3 = orgPath3[0].replace(/^(\^+)/, '\\$1');
+
+
+            if( filename.startsWith(escapedOrgPath1) ){
                 console.log('file path1: '+filename)
                 filepath = replacePath(options.source_base_path_1, filename)
             }
-            else if ( orgPath2[0].test(filename) ){
+            else if ( filename.startsWith(escapedOrgPath2) ){
                 console.log('file path2: '+filename)
                 filepath = replacePath(options.source_base_path_2, filename)
             }
-            else if ( orgPath3[0].test(filename) ){
+            else if ( filename.startsWith(escapedOrgPath3) ){
                 console.log('file path3: '+filename)
                 filepath = replacePath(options.source_base_path_3, filename)
             }
