@@ -223,7 +223,7 @@ async function processPipelineFlaws(options, flawData) {
         //rewrite path
         function replacePath (rewrite, path){
             replaceValues = rewrite.split(":")
-            console.log('rewrite: '+rewrite+'Value 1:'+replaceValues[0]+' Value 2: '+replaceValues[1]+' old path: '+path)
+            console.log('rewrite: '+rewrite+' Value 1:'+replaceValues[0]+' Value 2: '+replaceValues[1]+' old path: '+path)
             newPath = path.replace(replaceValues[0],replaceValues[1])
             console.log('new Path:'+newPath)
             return newPath
@@ -242,6 +242,8 @@ async function processPipelineFlaws(options, flawData) {
             escapedOrgPath1 = orgPath1[0].replace(/^(\^+)/, '\\$1');
             escapedOrgPath2 = orgPath2[0].replace(/^(\^+)/, '\\$1');
             escapedOrgPath3 = orgPath3[0].replace(/^(\^+)/, '\\$1');
+
+            console.log('escapedOrgPath1: '+escapedOrgPath1+' escapedOrgPath2: '+escapedOrgPath2+' escapedOrgPath3: '+escapedOrgPath3)
 
 
             if( filename.startsWith(escapedOrgPath1) ){
