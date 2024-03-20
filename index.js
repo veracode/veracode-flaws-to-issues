@@ -17,10 +17,13 @@ try {
     const source_base_path_3 = core.getInput('source_base_path_3');
     const fail_build = core.getInput('fail_build');
     const debug = core.getInput('debug')
-    const commit_hash = process.env.GITHUB_SHA;
+    let commit_hash = core.getInput('commitHash');
+    if ( commit_hash == "" ){
+        commit_hash = process.env.GITHUB_SHA;
+    }
     console.log('resultsFile: '+resultsFile+'\nwaitTime: '+waitTime+'\nsource_base_path_1: '+source_base_path_1+'\nsource_base_path_2: '+source_base_path_2+'\nsource_base_path_3: '+source_base_path_3+'\ncommit_hash: '+commit_hash+'\ndebug: '+debug)
 
-
+    let isPR
     let owner
     let repo
 
