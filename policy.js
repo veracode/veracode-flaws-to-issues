@@ -200,7 +200,7 @@ async function processPolicyFlaws(options, flawData) {
         }
 
         filename = flaw.finding_details.file_path
-        var filepath = filename
+        let filepath
 
         console.log('File Path: '+filename+' before rewrite')
         if (options.source_base_path_1 || options.source_base_path_2 || options.source_base_path_3){
@@ -225,6 +225,10 @@ async function processPolicyFlaws(options, flawData) {
                 console.log('Filepath rewrite 3: '+filepath);
             }
             console.log('Filepath end: '+filepath);
+        }
+
+        if ( filepath == "" ){
+            filepath = filename
         }
 
         linestart = eval(flaw.finding_details.file_line_number-5)
