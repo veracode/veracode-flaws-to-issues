@@ -200,28 +200,36 @@ async function processPolicyFlaws(options, flawData) {
         }
 
         filename = flaw.finding_details.file_path
+        let filepath
 
-        var filepath = filename
-
+        console.log('File Path: '+filename+' before rewrite')
         if (options.source_base_path_1 || options.source_base_path_2 || options.source_base_path_3){
             orgPath1 = options.source_base_path_1.split(":")
             orgPath2 = options.source_base_path_2.split(":")
             orgPath3 = options.source_base_path_3.split(":")
             console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
 
-            if( filename.startsWith(orgPath1[0]) ){
-                console.log('file path1: '+filename)
+
+            if( filename.includes(orgPath1[0])) {
+                //console.log('file path1: '+filename)
                 filepath = replacePath(options.source_base_path_1, filename)
+                //console.log('Filepath rewrtie 1: '+filepath);
             }
-            else if ( filename.startsWith(orgPath2[0]) ){
-                console.log('file path2: '+filename)
+            else if (filename.includes(orgPath2[0])){
+                //console.log('file path2: '+filename)
                 filepath = replacePath(options.source_base_path_2, filename)
+                //console.log('Filepath rewrite 2: '+filepath);
             }
-            else if ( filename.startsWith(orgPath3[0]) ){
-                console.log('file path3: '+filename)
+            else if (filename.includes(orgPath3[0])){
+                //console.log('file path3: '+filename)
                 filepath = replacePath(options.source_base_path_3, filename)
+                //console.log('Filepath rewrite 3: '+filepath);
             }
-            console.log('Filepath:'+filepath);
+            //console.log('Filepath end: '+filepath);
+        }
+
+        if ( filepath == "" ){
+            filepath = filename
         }
 
         linestart = eval(flaw.finding_details.file_line_number-5)
