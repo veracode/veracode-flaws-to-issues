@@ -193,9 +193,9 @@ async function processPolicyFlaws(options, flawData) {
         //rewrite path
         function replacePath (rewrite, path){
             replaceValues = rewrite.split(":")
-            console.log('Value 1:'+replaceValues[0]+' Value 2: '+replaceValues[1]+' old path: '+path)
+            //console.log('Value 1:'+replaceValues[0]+' Value 2: '+replaceValues[1]+' old path: '+path)
             newPath = path.replace(replaceValues[0],replaceValues[1])
-            console.log('new Path:'+newPath)
+            //console.log('new Path:'+newPath)
             return newPath
         }
 
@@ -207,24 +207,24 @@ async function processPolicyFlaws(options, flawData) {
             orgPath1 = options.source_base_path_1.split(":")
             orgPath2 = options.source_base_path_2.split(":")
             orgPath3 = options.source_base_path_3.split(":")
-            console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
+            //console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
 
             if( filename.includes(orgPath1[0])) {
-                console.log('file path1: '+filename)
+                //console.log('file path1: '+filename)
                 filepath = replacePath(options.source_base_path_1, filename)
-                console.log('Filepath rewrtie 1: '+filepath);
+                //console.log('Filepath rewrtie 1: '+filepath);
             }
             else if (filename.includes(orgPath2[0])){
-                console.log('file path2: '+filename)
+                //console.log('file path2: '+filename)
                 filepath = replacePath(options.source_base_path_2, filename)
-                console.log('Filepath rewrite 2: '+filepath);
+                //console.log('Filepath rewrite 2: '+filepath);
             }
             else if (filename.includes(orgPath3[0])){
-                console.log('file path3: '+filename)
+                //console.log('file path3: '+filename)
                 filepath = replacePath(options.source_base_path_3, filename)
-                console.log('Filepath rewrite 3: '+filepath);
+                //console.log('Filepath rewrite 3: '+filepath);
             }
-            console.log('Filepath end: '+filepath);
+            //console.log('Filepath end: '+filepath);
         }
 
         if ( filepath == "" ){
