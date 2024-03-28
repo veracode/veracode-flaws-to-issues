@@ -202,6 +202,7 @@ async function processPolicyFlaws(options, flawData) {
         filename = flaw.finding_details.file_path
         var filepath = filename
 
+        console.log('File Path: '+filename+' before rewrite')
         if (options.source_base_path_1 || options.source_base_path_2 || options.source_base_path_3){
             orgPath1 = options.source_base_path_1.split(":")
             orgPath2 = options.source_base_path_2.split(":")
