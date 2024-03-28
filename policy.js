@@ -193,9 +193,9 @@ async function processPolicyFlaws(options, flawData) {
         //rewrite path
         function replacePath (rewrite, path){
             replaceValues = rewrite.split(":")
-            //console.log('Value 1:'+replaceValues[0]+' Value 2: '+replaceValues[1]+' old path: '+path)
+            console.log('Value 1:'+replaceValues[0]+' Value 2: '+replaceValues[1]+' old path: '+path)
             newPath = path.replace(replaceValues[0],replaceValues[1])
-            //console.log('new Path:'+newPath)
+            console.log('new Path:'+newPath)
             return newPath
         }
 
