@@ -212,16 +212,19 @@ async function processPolicyFlaws(options, flawData) {
             if( filename.includes(orgPath1[0])) {
                 console.log('file path1: '+filename)
                 let filepath = replacePath(options.source_base_path_1, filename)
+                console.log('Filepath rewrtie 1: '+filepath);
             }
             else if (filename.includes(orgPath2[0])){
                 console.log('file path2: '+filename)
                 let filepath = replacePath(options.source_base_path_2, filename)
+                console.log('Filepath rewrite 2: '+filepath);
             }
             else if (filename.includes(orgPath3[0])){
                 console.log('file path3: '+filename)
                 let filepath = replacePath(options.source_base_path_3, filename)
+                console.log('Filepath rewrite 3: '+filepath);
             }
-            console.log('Filepath:'+filepath);
+            console.log('Filepath end: '+filepath);
         }
 
         linestart = eval(flaw.finding_details.file_line_number-5)
