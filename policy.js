@@ -200,25 +200,24 @@ async function processPolicyFlaws(options, flawData) {
         }
 
         filename = flaw.finding_details.file_path
-
         var filepath = filename
 
         if (options.source_base_path_1 || options.source_base_path_2 || options.source_base_path_3){
             orgPath1 = options.source_base_path_1.split(":")
             orgPath2 = options.source_base_path_2.split(":")
             orgPath3 = options.source_base_path_3.split(":")
-            //console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
+            console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
 
             if( filename.includes(orgPath1[0])) {
-                //console.log('file path1: '+filename)
+                console.log('file path1: '+filename)
                 let filepath = replacePath(options.source_base_path_1, filename)
             }
             else if (filename.includes(orgPath2[0])){
-                //console.log('file path2: '+filename)
+                console.log('file path2: '+filename)
                 let filepath = replacePath(options.source_base_path_2, filename)
             }
             else if (filename.includes(orgPath3[0])){
-                //console.log('file path3: '+filename)
+                console.log('file path3: '+filename)
                 let filepath = replacePath(options.source_base_path_3, filename)
             }
             console.log('Filepath:'+filepath);
