@@ -207,7 +207,8 @@ async function processPolicyFlaws(options, flawData) {
             orgPath1 = options.source_base_path_1.split(":")
             orgPath2 = options.source_base_path_2.split(":")
             orgPath3 = options.source_base_path_3.split(":")
-            //console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
+            console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
+
 
             if( filename.includes(orgPath1[0])) {
                 //console.log('file path1: '+filename)

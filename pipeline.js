@@ -223,9 +223,9 @@ async function processPipelineFlaws(options, flawData) {
         //rewrite path
         function replacePath (rewrite, path){
             replaceValues = rewrite.split(":")
-            //console.log('Value 1:'+replaceValues[0]+' Value 2: '+replaceValues[1]+' old path: '+path)
+            console.log('rewrite: '+rewrite+' Value 1:'+replaceValues[0]+' Value 2: '+replaceValues[1]+' old path: '+path)
             newPath = path.replace(replaceValues[0],replaceValues[1])
-            //console.log('new Path:'+newPath)
+            console.log('new Path:'+newPath)
             return newPath
         }
 
@@ -236,21 +236,21 @@ async function processPipelineFlaws(options, flawData) {
             orgPath1 = options.source_base_path_1.split(":")
             orgPath2 = options.source_base_path_2.split(":")
             orgPath3 = options.source_base_path_3.split(":")
-            //console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
+            console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
 
-            if( filename.includes(orgPath1[0])) {
-                //console.log('file path1: '+filename)
+            if( filename.startsWith(orgPath1[0]) ){
+                console.log('file path1: '+filename)
                 filepath = replacePath(options.source_base_path_1, filename)
             }
-            else if (filename.includes(orgPath2[0])){
-                //console.log('file path2: '+filename)
+            else if ( filename.startsWith(orgPath2[0]) ){
+                console.log('file path2: '+filename)
                 filepath = replacePath(options.source_base_path_2, filename)
             }
-            else if (filename.includes(orgPath3[0])){
-                //console.log('file path3: '+filename)
+            else if ( filename.startsWith(orgPath3[0]) ){
+                console.log('file path3: '+filename)
                 filepath = replacePath(options.source_base_path_3, filename)
             }
-            //console.log('Filepath:'+filepath);
+            console.log('Filepath:'+filepath);
         }
 
         linestart = eval(flaw.files.source_file.line-5)

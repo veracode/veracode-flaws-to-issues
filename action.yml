@@ -31,6 +31,9 @@ inputs:
   debug:
     description: enable debug logging
     required: false
+  commitHash:
+    description: commit hash
+    required: false
 
 runs:
   using: 'node20'
