@@ -63,7 +63,10 @@ async function importFlaws(options) {
     else {
         scanType = 'policy';
         console.log('This is a policy scan')
-        if(!'_embedded' in flawData){
+        if('_embedded' in flawData){
+            console.log('Flaws found to import!')
+        }
+        else {
             throw new Error ('No flaws found to import!');
         }
     }
