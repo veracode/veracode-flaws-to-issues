@@ -67,6 +67,8 @@ async function importFlaws(options) {
             console.log('Flaws found to import!')
         }
         else {
+            console.log('No flaws found to import!')
+            return;
             throw new Error ('No flaws found to import!');
         }
     }
