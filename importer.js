@@ -60,12 +60,18 @@ async function importFlaws(options) {
         scanType = 'pipeline';
         console.log('This is a pipeline scan')
     }
-    else if('_embedded' in flawData){
+    else {
         scanType = 'policy';
         console.log('This is a policy scan')
+        if('_embedded' in flawData){
+            console.log('Flaws found to import!')
+        }
+        else {
+            console.log('No flaws found to import!')
+            return;
+            throw new Error ('No flaws found to import!');
+        }
     }
-    else 
-        throw new Error ('Unknown file type for input file');
 
     console.log(`Importing ${scanType} flaws into  ${githubOwner}/${githubRepo}.  ${waitTime} seconds between imports (to handle GitHub rate limiting)`);
 
