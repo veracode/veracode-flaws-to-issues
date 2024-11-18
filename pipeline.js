@@ -236,12 +236,13 @@ async function processPipelineFlaws(options, flawData) {
                     result = searchFile(fullPath, filename);
                     if (result) break;
                 } else if (file === filename) {
+                    console.log('File found: '+fullPath)
                     result = fullPath;
                     break;
                 }
             }
             //remove current directory from the path
-            result = result.replace(process.cwd()+'/', '')
+            //result = result.replace(process.cwd()+'/', '')
             console.log('Result: '+result)
             return result;
         }
