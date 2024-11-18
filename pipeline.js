@@ -228,6 +228,7 @@ async function processPipelineFlaws(options, flawData) {
             const files = fs.readdirSync(dir);
         
             for (const file of files) {
+                if (file === '.git') continue;
                 const fullPath = path.join(dir, file);
                 const stat = fs.statSync(fullPath);
         
