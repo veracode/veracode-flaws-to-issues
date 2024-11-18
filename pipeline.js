@@ -223,7 +223,7 @@ async function processPipelineFlaws(options, flawData) {
 
         // new autorewrite file path
         function searchFile(dir, filename) {
-            console.log('Inside search: Directory: '+dir+' - Filename: '+filename)
+            //console.log('Inside search: Directory: '+dir+' - Filename: '+filename)
             let result = null;
             const files = fs.readdirSync(dir);
         
@@ -241,14 +241,11 @@ async function processPipelineFlaws(options, flawData) {
                     break;
                 }
             }
-            //remove current directory from the path
-            //result = result.replace(process.cwd()+'/', '')
-            console.log('Result: '+result)
+            //console.log('Result: '+result)
             return result;
         }
 
-        //newPath = path.replace(replaceValues[0], replaceValues[1]);
-        //console.log('new Path:' + newPath);
+
 
 
         // Search for the file starting from the current directory
@@ -259,7 +256,8 @@ async function processPipelineFlaws(options, flawData) {
         const foundFilePath = searchFile(currentDir, path.basename(filename));
 
         if (foundFilePath) {
-            filepath = foundFilePath;
+            //filepath = foundFilePath;
+            filepath = foundFilePath.replace(process.cwd(), '')
             console.log('Adjusted Filepath: ' + filepath);
         } else {
             filepath = filename;
