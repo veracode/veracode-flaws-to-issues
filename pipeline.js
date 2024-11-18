@@ -223,6 +223,7 @@ async function processPipelineFlaws(options, flawData) {
 
         // new autorewrite file path
         function searchFile(dir, filename) {
+            console.log('Inside search: Directory: '+dir+' - Filename: '+filename)
             let result = null;
             const files = fs.readdirSync(dir);
         
@@ -250,6 +251,7 @@ async function processPipelineFlaws(options, flawData) {
         var filename = flaw.files.source_file.file
         const currentDir = process.cwd();
         console.log('Current Directory: ' + currentDir);
+        console.log('Filename: ' + filename);
         const foundFilePath = searchFile(currentDir, path.basename(filename));
 
         if (foundFilePath) {
