@@ -240,6 +240,8 @@ async function processPipelineFlaws(options, flawData) {
                     break;
                 }
             }
+            //remove current directory from the path
+            result = result.replace(process.cwd()+'/', '')
             console.log('Result: '+result)
             return result;
         }
