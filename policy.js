@@ -7,6 +7,8 @@ const label = require('./label');
 const addVeracodeIssue = require('./issue').addVeracodeIssue;
 const addVeracodeIssueComment = require('./issue_comment').addVeracodeIssueComment;
 const core = require('@actions/core');
+const fs = require('fs');
+const path = require('path');
 
 // sparse array, element = true if the flaw exists, undefined otherwise
 var existingFlaws = [];
