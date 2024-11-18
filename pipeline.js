@@ -245,9 +245,6 @@ async function processPipelineFlaws(options, flawData) {
             return result;
         }
 
-
-
-
         // Search for the file starting from the current directory
         var filename = flaw.files.source_file.file
         const currentDir = process.cwd();
