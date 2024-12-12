@@ -276,6 +276,10 @@ async function processPolicyFlaws(options, flawData) {
             //console.log('Filepath end: '+filepath);
         }
 
+        if ( filepath == undefined ){
+            filepath = filename
+        }
+
         if ( filepath == "" ){
             filepath = filename
         }
