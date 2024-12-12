@@ -7,6 +7,8 @@ const label = require('./label');
 const addVeracodeIssue = require('./issue').addVeracodeIssue;
 const addVeracodeIssueComment = require('./issue_comment').addVeracodeIssueComment;
 const core = require('@actions/core');
+const fs = require('fs');
+const path = require('path');
 
 // sparse array, element = true if the flaw exists, undefined otherwise
 var existingFlaws = [];
@@ -190,6 +192,52 @@ async function processPolicyFlaws(options, flawData) {
             continue;
         }
 
+        // new auto rewrite path
+        // new autorewrite file path
+        function searchFile(dir, filename) {
+            //console.log('Inside search: Directory: '+dir+' - Filename: '+filename)
+            let result = null;
+            const files = fs.readdirSync(dir);
+        
+            for (const file of files) {
+                if (file === '.git') continue;
+                const fullPath = path.join(dir, file);
+                const stat = fs.statSync(fullPath);
+        
+                if (stat.isDirectory()) {
+                    result = searchFile(fullPath, filename);
+                    if (result) break;
+                } else if (file === filename) {
+                    console.log('File found: '+fullPath)
+                    result = fullPath;
+                    break;
+                }
+            }
+            //console.log('Result: '+result)
+            return result;
+        }
+
+        // Search for the file starting from the current directory
+        var filename = flaw.finding_details.file_path
+        const currentDir = process.cwd();
+        console.log('Current Directory: ' + currentDir);
+        console.log('Filename: ' + filename);
+        const foundFilePath = searchFile(currentDir, path.basename(filename));
+
+        if (foundFilePath) {
+            //filepath = foundFilePath;
+            filepath = foundFilePath.replace(process.cwd(), '')
+            console.log('Adjusted Filepath: ' + filepath);
+        } else {
+            filepath = filename;
+            console.log('File not found in the current directory or its subdirectories.');
+        }
+
+
+
+
+
+/* old rewrite path
         //rewrite path
         function replacePath (rewrite, path){
             replaceValues = rewrite.split(":")
@@ -235,6 +283,8 @@ async function processPolicyFlaws(options, flawData) {
         if ( filepath == "" ){
             filepath = filename
         }
+
+old rewrite path */
 
         linestart = eval(flaw.finding_details.file_line_number-5)
         linened = eval(flaw.finding_details.file_line_number+5)
