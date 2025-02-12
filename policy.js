@@ -226,7 +226,7 @@ async function processPolicyFlaws(options, flawData) {
 
         if (foundFilePath) {
             //filepath = foundFilePath;
-            filepath = foundFilePath.replace(process.cwd(), '')
+            filepath = foundFilePath.replace(`${process.cwd()}/`, '')
             console.log('Adjusted Filepath: ' + filepath);
         } else {
             filepath = filename;
