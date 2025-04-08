@@ -340,7 +340,7 @@ async function processPolicyFlaws(options, flawData) {
         console.log('Check if flaw needs to be closed')
         console.log('flawNum: '+flawNum)
         console.log('exisitingFlawTitle[flawNum]: '+exisitingFlawTitle[flawNum])
-        console.log('seenFlaws.flawNum: '+seenFlaws.flawNum)
+        console.log('seenFlaws[flawNum]: '+seenFlaws[flawNum])
         if (existingFlawNumber[flawNum] === seenFlaws.has(parseInt(flawNum))) {
             const issue_number = existingFlawNumber[flawNum];
             if (issue_number) {
