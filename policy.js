@@ -94,6 +94,7 @@ async function getAllVeracodeIssues(options) {
                         existingFlaws[parseInt(flawNum)] = true;
                         existingFlawNumber[parseInt(flawNum)] = issue_number;
                         existingIssueState[parseInt(flawNum)] = issueState;
+                        exisitingFlawTitle[parseInt(flawNum)] = element.title;
                     }
                 })
 
@@ -183,9 +184,11 @@ async function processPolicyFlaws(options, flawData) {
             if ( issueState == "open"){
                 console.log('Issue is open, check if we need to close it')
                 console.log('existingFlaws[flawNum]: '+existingFlaws[flawNum])
-                console.log('Issue Number: '+existingFlawNumber[flawNum])
-                console.log('FlawID: '+getVeracodeFlawID(element.title))
-                if (existingFlawNumber[flawNum] === vid) {
+                console.log('Issue Title: '+existingFlawTitle[flawNum])
+                let issueTitle = existingFlawTitle[flawNum]
+                let issueFlawID = getVeracodeFlawID(issueTitle)
+                console.log('FlawID: '+issueFlawID)
+                if (issueFlawID === vid) {
                     const issue_number = existingFlawNumber[flawNum];
                     if (issue_number) {
                         console.log(`Closing issue #${issue_number} as it was not found in the current scan`);
