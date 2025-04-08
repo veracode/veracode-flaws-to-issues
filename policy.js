@@ -19,6 +19,18 @@ var exisitingFlawTitle = [];
 var pr_link
 const seenFlaws = [];
 
+// Function to replace Veracode action with readable format
+function replaceAction(action) {
+    const actionMap = {
+        'APPDESIGN': 'Mitigation by Design',
+        'NETENV': 'Mitigation by Network Environment',
+        'OSENV': 'Mitigation by OS Environment',
+        'FP': 'Potential False Positive',
+        'APPROVED': 'Approved'
+    };
+    return actionMap[action] || action;
+}
+
 
 function createVeracodeFlawID(flaw) {
     // [VID:FlawID]
@@ -130,8 +142,6 @@ function getIssueState(vid) {
     return existingIssueState[parseInt(parseVeracodeFlawID(vid).flawNum)]
 }
 
-
-
 async function processPolicyFlaws(options, flawData) {
 
     const util = require('./util');
@@ -158,15 +168,53 @@ async function processPolicyFlaws(options, flawData) {
         console.log(seenFlaws)
 
         // check for mitigation
-        console.log("finding")
-        console.log(flaw)
+        if ( options.debug == "true" ){
+            core.info('#### DEBUG START ####')
+            core.info('policy.js')
+            core.info("finding")  
+            core.info(flaw)
+            core.info('#### DEBUG END ####')
+        }
         if(flaw.finding_status.resolution_status == 'APPROVED') {
             console.log('Flaw mitigated, closing issue if it exists');
-            if (issueExists(vid) && issueState === "open") {
+            
+            if (issueExists(vid)) {
                 try {
-                    await closeVeracodeIssue(options, issue_number);
+                    // Get annotations in reverse order
+                    const annotations = flaw.annotations || [];
+                    const reversedAnnotations = [...annotations].reverse();
+                    
+                    // Combine all annotations into a single comment
+                    let combinedComment = "Issue update due to Veracode mitigation\n\n";
+                    for (const annotation of reversedAnnotations) {
+                        combinedComment += `Veracode user: ${annotation.user_name}\n`;
+                        combinedComment += `Action: ${replaceAction(annotation.action)}\n`;
+                        combinedComment += `Reason: ${annotation.comment}\n`;
+                        combinedComment += `Date: ${annotation.created}\n\n`;
+                    }
+                    
+                    // Add the single combined comment
+                    await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                        headers: {
+                            authorization: 'token ' + options.githubToken
+                        },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        issue_number: issue_number,
+                        data: {
+                            "body": combinedComment
+                        }
+                    });
+                    
                     if (waitTime > 0) {
                         await util.sleep(waitTime * 1000);
+                    }
+                    if (issueState === "open") {
+                        // Close the issue after adding the comment
+                        await closeVeracodeIssue(options, issue_number);
+                        if (waitTime > 0) {
+                            await util.sleep(waitTime * 1000);
+                        }
                     }
                 } catch (error) {
                     console.error(`Failed to close mitigated issue #${issue_number}: ${error.message}`);
