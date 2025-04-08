@@ -189,6 +189,7 @@ async function processPolicyFlaws(options, flawData) {
                 let issueTitle = exisitingFlawTitle[flawNum]
                 let issueFlawID = getVeracodeFlawID(issueTitle)
                 console.log('FlawID: '+issueFlawID)
+                console.log('vid: '+vid)
                 if (issueFlawID === vid) {
                     const issue_number = existingFlawNumber[flawNum];
                     if (issue_number) {
