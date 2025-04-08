@@ -155,7 +155,9 @@ async function processPolicyFlaws(options, flawData) {
         console.debug(`processing flaw ${flaw.issue_id}, VeracodeID: ${vid}`);
 
         // Add this flaw to our seen set
-        seenFlaws.add(parseInt(parseVeracodeFlawID(vid).flawNum));
+        var flawNum = parseInt(parseVeracodeFlawID(vid).flawNum);
+        console.log(' adding flawNum: '+flawNum+' to seen flaws')
+        seenFlaws.add(flawNum);
 
         // check for mitigation
         if(flaw.finding_status.resolution_status == 'APPROVED') {
@@ -340,8 +342,10 @@ async function processPolicyFlaws(options, flawData) {
         console.log('Check if flaw needs to be closed')
         console.log('flawNum: '+flawNum)
         console.log('exisitingFlawTitle[flawNum]: '+exisitingFlawTitle[flawNum])
+        console.log('existingFlawNumber[flawNum]: '+existingFlawNumber[flawNum])
         console.log('seenFlaws[flawNum]: '+seenFlaws[flawNum])
         if (existingFlawNumber[flawNum] === seenFlaws.has(parseInt(flawNum))) {
+            console.log('Issue number: '+existingFlawNumber[flawNum]+' / Veracide ID: '+flawNum+ ' is not on the current results provided')
             const issue_number = existingFlawNumber[flawNum];
             if (issue_number) {
                 console.log(`Closing issue #${issue_number} as it was not found in the current scan`);
