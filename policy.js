@@ -9,6 +9,7 @@ const addVeracodeIssueComment = require('./issue_comment').addVeracodeIssueComme
 const core = require('@actions/core');
 const fs = require('fs');
 const path = require('path');
+const { closeVeracodeIssue } = require('./issue');
 
 // sparse array, element = true if the flaw exists, undefined otherwise
 var existingFlaws = [];
@@ -138,6 +139,9 @@ async function processPolicyFlaws(options, flawData) {
     // get a list of all open VeracodeSecurity issues in the repo
     await getAllVeracodeIssues(options)
 
+    // Track which issues we've seen in this scan
+    const seenFlaws = new Set();
+
     // walk through the list of flaws in the input file
     console.log(`Processing input file: \"${options.resultsFile}\" with ${flawData._embedded.findings.length} flaws to process.`)
     var index;
@@ -148,9 +152,22 @@ async function processPolicyFlaws(options, flawData) {
         let issueState = getIssueState(vid)
         console.debug(`processing flaw ${flaw.issue_id}, VeracodeID: ${vid}`);
 
+        // Add this flaw to our seen set
+        seenFlaws.add(parseInt(parseVeracodeFlawID(vid).flawNum));
+
         // check for mitigation
         if(flaw.finding_status.resolution_status == 'APPROVED') {
-            console.log('Flaw mitigated, skipping import');
+            console.log('Flaw mitigated, closing issue if it exists');
+            if (issueExists(vid) && issueState === "open") {
+                try {
+                    await closeVeracodeIssue(options, issue_number);
+                    if (waitTime > 0) {
+                        await util.sleep(waitTime * 1000);
+                    }
+                } catch (error) {
+                    console.error(`Failed to close mitigated issue #${issue_number}: ${error.message}`);
+                }
+            }
             continue;
         }
 
@@ -172,13 +189,11 @@ async function processPolicyFlaws(options, flawData) {
                     'pr_link': pr_link
                 }; 
     
-    
                 await addVeracodeIssueComment(options, issueComment)
                 .catch( error => {
                     if(error instanceof util.ApiError) {
                         throw error;
                     } else {
-                        //console.error(error.message);
                         throw error; 
                     }
                 })
@@ -186,9 +201,6 @@ async function processPolicyFlaws(options, flawData) {
             else{
                 console.log('GitHub issue is closed no need to update.')
             }
-
-
-    
             continue;
         }
 
@@ -233,58 +245,6 @@ async function processPolicyFlaws(options, flawData) {
             console.log('File not found in the current directory or its subdirectories.');
         }
 
-
-
-
-
-/* old rewrite path
-        //rewrite path
-        function replacePath (rewrite, path){
-            replaceValues = rewrite.split(":")
-            //console.log('Value 1:'+replaceValues[0]+' Value 2: '+replaceValues[1]+' old path: '+path)
-            newPath = path.replace(replaceValues[0],replaceValues[1])
-            //console.log('new Path:'+newPath)
-            return newPath
-        }
-
-        filename = flaw.finding_details.file_path
-        let filepath
-
-        console.log('File Path: '+filename+' before rewrite')
-        if (options.source_base_path_1 || options.source_base_path_2 || options.source_base_path_3){
-            orgPath1 = options.source_base_path_1.split(":")
-            orgPath2 = options.source_base_path_2.split(":")
-            orgPath3 = options.source_base_path_3.split(":")
-            console.log('path1: '+orgPath1[0]+' path2: '+orgPath2[0]+' path3: '+orgPath3[0])
-
-
-            if( filename.includes(orgPath1[0])) {
-                //console.log('file path1: '+filename)
-                filepath = replacePath(options.source_base_path_1, filename)
-                //console.log('Filepath rewrtie 1: '+filepath);
-            }
-            else if (filename.includes(orgPath2[0])){
-                //console.log('file path2: '+filename)
-                filepath = replacePath(options.source_base_path_2, filename)
-                //console.log('Filepath rewrite 2: '+filepath);
-            }
-            else if (filename.includes(orgPath3[0])){
-                //console.log('file path3: '+filename)
-                filepath = replacePath(options.source_base_path_3, filename)
-                //console.log('Filepath rewrite 3: '+filepath);
-            }
-            //console.log('Filepath end: '+filepath);
-        }
-
-        if ( filepath == undefined ){
-            filepath = filename
-        }
-
-        if ( filepath == "" ){
-            filepath = filename
-        }
-
-old rewrite path */
 
         linestart = eval(flaw.finding_details.file_line_number-5)
         linened = eval(flaw.finding_details.file_line_number+5)
@@ -370,6 +330,24 @@ old rewrite path */
         // rate limiter, per GitHub: https://docs.github.com/en/rest/guides/best-practices-for-integrators
         if(waitTime > 0)
             await util.sleep(waitTime * 1000);
+    }
+
+    // After processing all flaws, close any issues that weren't seen in this scan
+    for (let flawNum in existingFlaws) {
+        if (existingFlaws[flawNum] === true && !seenFlaws.has(parseInt(flawNum))) {
+            const issue_number = existingFlawNumber[flawNum];
+            if (issue_number) {
+                console.log(`Closing issue #${issue_number} as it was not found in the current scan`);
+                try {
+                    await closeVeracodeIssue(options, issue_number);
+                    if (waitTime > 0) {
+                        await util.sleep(waitTime * 1000);
+                    }
+                } catch (error) {
+                    console.error(`Failed to close issue #${issue_number}: ${error.message}`);
+                }
+            }
+        }
     }
 
     return index;

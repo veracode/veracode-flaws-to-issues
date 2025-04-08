@@ -105,4 +105,33 @@ I'd like help with:
 Thank you.`);
 }
 
-module.exports = { addVeracodeIssue };
+// close an existing GitHub issue
+async function closeVeracodeIssue(options, issue_number) {
+    const githubOwner = options.githubOwner;
+    const githubRepo = options.githubRepo;
+    const githubToken = options.githubToken;
+
+    console.debug(`Closing Issue #${issue_number}`);
+
+    var authToken = 'token ' + githubToken;
+
+    await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+        headers: {
+            authorization: authToken
+        },
+        owner: githubOwner,
+        repo: githubRepo,
+        issue_number: issue_number,
+        data: {
+            "state": "closed"
+        }
+    })
+    .then( result => {
+        console.log(`Issue #${issue_number} successfully closed, result: ${result.status}`);
+    })
+    .catch( error => {
+        throw new Error (`Error ${error.status} closing Issue #${issue_number}: ${error.message}`);
+    });
+}
+
+module.exports = { addVeracodeIssue, closeVeracodeIssue };
