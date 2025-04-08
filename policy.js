@@ -17,7 +17,7 @@ var existingFlawNumber = [];
 var existingIssueState = [];
 var exisitingFlawTitle = [];
 var pr_link
-
+const seenFlaws = new Set();
 
 
 function createVeracodeFlawID(flaw) {
@@ -141,9 +141,6 @@ async function processPolicyFlaws(options, flawData) {
     // get a list of all open VeracodeSecurity issues in the repo
     await getAllVeracodeIssues(options)
 
-    // Track which issues we've seen in this scan
-    const seenFlaws = new Set();
-
     // walk through the list of flaws in the input file
     console.log(`Processing input file: \"${options.resultsFile}\" with ${flawData._embedded.findings.length} flaws to process.`)
     var index;
@@ -156,8 +153,9 @@ async function processPolicyFlaws(options, flawData) {
 
         // Add this flaw to our seen set
         var flawNum = parseInt(parseVeracodeFlawID(vid).flawNum);
-        console.log(' adding flawNum: '+flawNum+' to seen flaws')
+        console.log('adding flawNum: '+flawNum+' to seen flaws')
         seenFlaws.add(flawNum);
+        console.log(seenFlaws)
 
         // check for mitigation
         if(flaw.finding_status.resolution_status == 'APPROVED') {
