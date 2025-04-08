@@ -17,7 +17,7 @@ var existingFlawNumber = [];
 var existingIssueState = [];
 var exisitingFlawTitle = [];
 var pr_link
-const seenFlaws = new Set();
+const seenFlaws = [];
 
 
 function createVeracodeFlawID(flaw) {
@@ -158,6 +158,8 @@ async function processPolicyFlaws(options, flawData) {
         console.log(seenFlaws)
 
         // check for mitigation
+        console.log("finding")
+        console.log(flaw)
         if(flaw.finding_status.resolution_status == 'APPROVED') {
             console.log('Flaw mitigated, closing issue if it exists');
             if (issueExists(vid) && issueState === "open") {
