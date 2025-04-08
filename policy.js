@@ -394,14 +394,14 @@ async function processPolicyFlaws(options, flawData) {
             await util.sleep(waitTime * 1000);
     }
 
+    console.log('Check if flaw needs to be closed')
     // After processing all flaws, close any issues that weren't seen in this scan
     for (let flawNum in existingFlaws) {
-        console.log('Check if flaw needs to be closed')
         console.log('flawNum: '+flawNum)
         console.log('exisitingFlawTitle[flawNum]: '+exisitingFlawTitle[flawNum])
         console.log('existingFlawNumber[flawNum]: '+existingFlawNumber[flawNum])
         console.log('seenFlaws[flawNum]: '+JSON.stringify(seenFlaws))
-        if (existingFlawNumber[flawNum] === seenFlaws.has(parseInt(flawNum))) {
+        if (existingFlawNumber[flawNum] && seenFlaws[flawNum]!=true) {
             console.log('Issue number: '+existingFlawNumber[flawNum]+' / Veracide ID: '+flawNum+ ' is not on the current results provided')
             const issue_number = existingFlawNumber[flawNum];
             if (issue_number) {
