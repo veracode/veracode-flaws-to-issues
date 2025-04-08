@@ -182,21 +182,7 @@ async function processPolicyFlaws(options, flawData) {
                 console.log("isPr?: "+options.isPR)
                 core.info('#### DEBUG END ####')
             }
-            if ( issueState == "open"){
-                console.log('Issue is open, check if we need to close it')
-                console.log('existingFlaws[flawNum]: '+existingFlaws[flawNum])
-                console.log('Issue Title: '+exisitingFlawTitle[flawNum])
-                let issueTitle = exisitingFlawTitle[flawNum]
-                let issueFlawID = getVeracodeFlawID(issueTitle)
-                console.log('FlawID: '+issueFlawID)
-                console.log('vid: '+vid)
-                if (issueFlawID === vid) {
-                    const issue_number = existingFlawNumber[flawNum];
-                    if (issue_number) {
-                        console.log(`Closing issue #${issue_number} as it was not found in the current scan`);
-                    }
-                }
-            }
+
             if ( options.isPR >= 1 && issueState == "open" ){
                 console.log('We are on a PR, need to link this issue to this PR')
                 pr_link = `Veracode issue link to PR: https://github.com/`+options.githubOwner+`/`+options.githubRepo+`/pull/`+options.pr_commentID
@@ -352,8 +338,9 @@ async function processPolicyFlaws(options, flawData) {
     // After processing all flaws, close any issues that weren't seen in this scan
     for (let flawNum in existingFlaws) {
         console.log('Check if flaw needs to be closed')
-        console.log('existingFlaws[flawNum]: '+existingFlawNumber[flawNum])
-        console.log('seenFlaws.has(parseInt(flawNum)): '+seenFlaws.has(parseInt(flawNum)))
+        console.log('flawNum: '+flawNum)
+        console.log('exisitingFlawTitle[flawNum]: '+exisitingFlawTitle[flawNum])
+        console.log('seenFlaws.flawNum: '+seenFlaws.flawNum)
         if (existingFlawNumber[flawNum] === seenFlaws.has(parseInt(flawNum))) {
             const issue_number = existingFlawNumber[flawNum];
             if (issue_number) {
