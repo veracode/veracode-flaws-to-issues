@@ -173,7 +173,7 @@ async function processPolicyFlaws(options, flawData) {
 
         // check for duplicate
         if(issueExists(vid)) {
-            console.log('Issue already exists, skipping import');
+            console.log('Issue already exists');
             if ( options.debug == "true" ){
                 core.info('#### DEBUG START ####')
                 core.info('policy.js')
@@ -182,8 +182,9 @@ async function processPolicyFlaws(options, flawData) {
             }
             if ( issueState == "open"){
                 console.log('Issue is open, check if we need to close it')
-                console.log('existingFlawNumber[flawNum]: '+existingFlawNumber[flawNum])
-                console.log('vid: '+vid)
+                console.log('existingFlaw[flawNum]: '+existingFlaw[flawNum])
+                console.log('Issue Number: '+existingFlawNumber[flawNum])
+                console.log('FlawID: '+getVeracodeFlawID(element.title))
                 if (existingFlawNumber[flawNum] === vid) {
                     const issue_number = existingFlawNumber[flawNum];
                     if (issue_number) {
