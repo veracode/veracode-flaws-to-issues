@@ -185,8 +185,8 @@ async function processPolicyFlaws(options, flawData) {
             if ( issueState == "open"){
                 console.log('Issue is open, check if we need to close it')
                 console.log('existingFlaws[flawNum]: '+existingFlaws[flawNum])
-                console.log('Issue Title: '+existingFlawTitle[flawNum])
-                let issueTitle = existingFlawTitle[flawNum]
+                console.log('Issue Title: '+exisitingFlawTitle[flawNum])
+                let issueTitle = exisitingFlawTitle[flawNum]
                 let issueFlawID = getVeracodeFlawID(issueTitle)
                 console.log('FlawID: '+issueFlawID)
                 if (issueFlawID === vid) {
