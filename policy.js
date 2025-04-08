@@ -343,7 +343,7 @@ async function processPolicyFlaws(options, flawData) {
         console.log('flawNum: '+flawNum)
         console.log('exisitingFlawTitle[flawNum]: '+exisitingFlawTitle[flawNum])
         console.log('existingFlawNumber[flawNum]: '+existingFlawNumber[flawNum])
-        console.log('seenFlaws[flawNum]: '+seenFlaws[flawNum])
+        console.log('seenFlaws[flawNum]: '+seenFlaws)
         if (existingFlawNumber[flawNum] === seenFlaws.has(parseInt(flawNum))) {
             console.log('Issue number: '+existingFlawNumber[flawNum]+' / Veracide ID: '+flawNum+ ' is not on the current results provided')
             const issue_number = existingFlawNumber[flawNum];
