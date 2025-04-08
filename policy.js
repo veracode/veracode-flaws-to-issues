@@ -15,7 +15,7 @@ const { closeVeracodeIssue } = require('./issue');
 var existingFlaws = [];
 var existingFlawNumber = [];
 var existingIssueState = [];
-var existingFlawTitle = [];
+var exisitingFlawTitle = [];
 var pr_link
 
 
