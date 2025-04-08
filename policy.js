@@ -335,6 +335,8 @@ async function processPolicyFlaws(options, flawData) {
     // After processing all flaws, close any issues that weren't seen in this scan
     for (let flawNum in existingFlaws) {
         console.log('Check if flaw needs to be closed')
+        console.log('existingFlaws[flawNum]: '+existingFlaws[flawNum])
+        console.log('seenFlaws.has(parseInt(flawNum)): '+seenFlaws.has(parseInt(flawNum)))
         if (existingFlaws[flawNum] === true && !seenFlaws.has(parseInt(flawNum))) {
             const issue_number = existingFlawNumber[flawNum];
             if (issue_number) {
