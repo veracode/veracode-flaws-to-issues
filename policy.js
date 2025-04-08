@@ -154,7 +154,7 @@ async function processPolicyFlaws(options, flawData) {
         // Add this flaw to our seen set
         var flawNum = parseInt(parseVeracodeFlawID(vid).flawNum);
         console.log('adding flawNum: '+flawNum+' to seen flaws')
-        seenFlaws.add(flawNum);
+        seenFlaws[flawNum]=true;
         console.log(seenFlaws)
 
         // check for mitigation
