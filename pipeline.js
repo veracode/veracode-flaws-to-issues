@@ -189,7 +189,6 @@ async function processPipelineFlaws(options, flawData) {
         console.debug(`processing flaw ${flaw.issue_id}, VeracodeID: ${vid}, GitHub FlawID: ${issue_number}, GitHub Issue State: ${issueState}`);
 
          // Add this flaw to our seen set
-        var flawNum = parseInt(parseVeracodeFlawIDNum(vid).flawNum);
         console.log('adding flawNum: '+flawNum+' to seen flaws')
         seenFlaws[flawNum]=true;
         console.log(seenFlaws)
