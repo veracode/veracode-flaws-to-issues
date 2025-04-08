@@ -176,8 +176,9 @@ async function processPolicyFlaws(options, flawData) {
             core.info('#### DEBUG END ####')
         }
         if(flaw.finding_status.resolution_status == 'APPROVED') {
-            console.log('Flaw mitigated, closing issue if it exists');
-            
+            core.info('Flaw mitigated, updating issue and closing issue if still open');
+            console.log('VID :'+vid)
+            console.log('issueExists(vid):'+issueExists(vid))
             if (issueExists(vid)) {
                 core.info('Issue exists, adding mitigation comment');
                 try {
