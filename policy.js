@@ -179,6 +179,7 @@ async function processPolicyFlaws(options, flawData) {
             console.log('Flaw mitigated, closing issue if it exists');
             
             if (issueExists(vid)) {
+                core.info('Issue exists, adding mitigation comment');
                 try {
                     // Get annotations in reverse order
                     const annotations = flaw.annotations || [];
@@ -191,6 +192,13 @@ async function processPolicyFlaws(options, flawData) {
                         combinedComment += `Action: ${replaceAction(annotation.action)}\n`;
                         combinedComment += `Reason: ${annotation.comment}\n`;
                         combinedComment += `Date: ${annotation.created}\n\n`;
+                    }
+                    if ( options.debug == "true" ){
+                        core.info('#### DEBUG START ####')
+                        core.info('policy.js')
+                        core.info("Issue comment due to mitigation")  
+                        core.info(combinedComment)
+                        core.info('#### DEBUG END ####')
                     }
                     
                     // Add the single combined comment
