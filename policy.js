@@ -183,8 +183,8 @@ async function processPolicyFlaws(options, flawData) {
             if ( issueState == "open"){
                 console.log('Issue is open, check if we need to close it')
                 console.log('existingFlawNumber[flawNum]: '+existingFlawNumber[flawNum])
-                console.log('seenFlaws.has(parseInt(flawNum)): '+seenFlaws.has(parseInt(flawNum)))
-                if (existingFlawNumber[flawNum] === seenFlaws.has(parseInt(flawNum))) {
+                console.log('vid: '+vid)
+                if (existingFlawNumber[flawNum] === vid) {
                     const issue_number = existingFlawNumber[flawNum];
                     if (issue_number) {
                         console.log(`Closing issue #${issue_number} as it was not found in the current scan`);
