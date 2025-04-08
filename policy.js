@@ -172,7 +172,7 @@ async function processPolicyFlaws(options, flawData) {
             core.info('#### DEBUG START ####')
             core.info('policy.js')
             core.info("finding")  
-            core.info(flaw)
+            core.info(JSON.stringify(flaw))
             core.info('#### DEBUG END ####')
         }
         if(flaw.finding_status.resolution_status == 'APPROVED') {
