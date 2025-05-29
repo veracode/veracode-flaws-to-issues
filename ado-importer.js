@@ -19,7 +19,7 @@ async function importFlawsToADO(params) {
     } = params;
 
     // Read and parse the results file
-    const results = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
+    const flawData = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
     
     // Initialize ADO API client
     const adoClient = axios.create({
@@ -33,8 +33,35 @@ async function importFlawsToADO(params) {
         }
     });
 
+    // Determine scan type and get flaws
+    let scanType = '';
+    let flaws = [];
+    
+    if ('pipeline_scan' in flawData) {
+        scanType = 'pipeline';
+        console.log('This is a pipeline scan');
+        flaws = flawData;
+    } else {
+        scanType = 'policy';
+        console.log('This is a policy scan');
+        if ('_embedded' in flawData) {
+            console.log('Flaws found to import!');
+            flaws = flawData._embedded.flaws || [];
+        } else {
+            console.log('No flaws found to import!');
+            return;
+        }
+    }
+
+    if (flaws.length === 0) {
+        console.log('No flaws found to import!');
+        return;
+    }
+
+    console.log(`Importing ${scanType} flaws into Azure DevOps. ${waitTime} seconds between imports (to handle rate limiting)`);
+
     // Process each flaw
-    for (const flaw of results) {
+    for (const flaw of flaws) {
         try {
             // Create work item
             const workItem = await createWorkItem(adoClient, adoProject, adoWorkItemType, flaw, {
