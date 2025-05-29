@@ -11,3 +11,6 @@ package-lock.json
 Archive.zip
 
 policy_flaws.json
+test-ado.js
+test-connection.js
+test-work-item-types.js

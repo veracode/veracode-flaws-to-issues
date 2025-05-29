@@ -32,12 +32,9 @@ async function importFlawsToADO(params) {
 
     const adoClient = axios.create({
         baseURL: baseUrl,
-        auth: {
-            username: 'Basic',
-            password: adoPat
-        },
         headers: {
-            'Content-Type': 'application/json-patch+json'
+            'Content-Type': 'application/json-patch+json',
+            'Authorization': `Bearer ${adoPat}`
         }
     });
 
@@ -122,49 +119,71 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
         commit_hash
     });
 
-    // Fix: Use the correct URL format for creating work items
-    // The organization should be part of the base URL, not the path
-    const url = `/${project}/_apis/wit/workitems/${workItemType}?api-version=6.0`;
-    const payload = [
-        {
-            op: 'add',
-            path: '/fields/System.Title',
-            value: `[Veracode] ${flaw.issue_id}: ${flaw.finding_details?.cwe?.name || 'Security Finding'}`
-        },
-        {
-            op: 'add',
-            path: '/fields/System.Description',
-            value: description
-        },
-        {
-            op: 'add',
-            path: '/fields/System.Tags',
-            value: 'Veracode;Security'
-        },
-        {
-            op: 'add',
-            path: '/fields/Microsoft.VSTS.Common.Severity',
-            value: mapSeverity(flaw.finding_details?.severity)
+    try {
+        // First, get the work item type reference
+        if (debug === 'true') {
+            console.log('Getting work item type reference...');
         }
-    ];
+        const typeResponse = await adoClient.get(`/${adoOrg}/${project}/_apis/wit/workitemTypes/${workItemType}?api-version=7.0`);
+        
+        if (debug === 'true') {
+            console.log('Work item type details:', JSON.stringify(typeResponse.data, null, 2));
+        }
 
-    if (debug === 'true') {
-        console.log('Creating work item with:');
-        console.log('Base URL:', adoClient.defaults.baseURL);
-        console.log('Organization:', adoOrg);
-        console.log('URL:', url);
-        console.log('Full URL:', `${adoClient.defaults.baseURL}/${adoOrg}${url}`);
-        console.log('Payload:', JSON.stringify(payload, null, 2));
+        // Now create the work item
+        const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.2-preview.3`;
+        const payload = [
+            {
+                op: 'add',
+                path: '/fields/System.Title',
+                value: `[Veracode] ${flaw.issue_id}: ${flaw.finding_details?.cwe?.name || 'Security Finding'}`
+            },
+            {
+                op: 'add',
+                path: '/fields/System.Description',
+                value: description
+            },
+            {
+                op: 'add',
+                path: '/fields/System.Tags',
+                value: 'Veracode;Security'
+            },
+            {
+                op: 'add',
+                path: '/fields/Microsoft.VSTS.Common.Severity',
+                value: mapSeverity(flaw.finding_details?.severity)
+            }
+        ];
+
+        if (debug === 'true') {
+            console.log('Creating work item with:');
+            console.log('Base URL:', adoClient.defaults.baseURL);
+            console.log('Organization:', adoOrg);
+            console.log('Project:', project);
+            console.log('URL:', url);
+            console.log('Full URL:', `${adoClient.defaults.baseURL}${url}`);
+            console.log('Payload:', JSON.stringify(payload, null, 2));
+        }
+
+        const response = await adoClient.post(url, payload);
+
+        if (debug === 'true') {
+            console.log('Response:', JSON.stringify(response.data, null, 2));
+        }
+
+        return response.data;
+    } catch (error) {
+        if (debug === 'true') {
+            console.error('Error creating work item:');
+            console.error('Status:', error.response?.status);
+            console.error('Data:', error.response?.data);
+            console.error('Headers:', error.response?.headers);
+            console.error('Request URL:', error.config?.url);
+            console.error('Request Method:', error.config?.method);
+            console.error('Request Headers:', error.config?.headers);
+        }
+        throw error;
     }
-
-    // Create the work item
-    const response = await adoClient.post(url, payload);
-
-    if (debug === 'true') {
-        console.log('Response:', JSON.stringify(response.data, null, 2));
-    }
-
-    return response.data;
 }
 
 function formatDescription(flaw, params) {
