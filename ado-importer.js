@@ -111,66 +111,61 @@ async function importFlawsToADO(params) {
 async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
 
-    // Format the description with markdown
-    const description = formatDescription(flaw, {
+    // Extract fields for title and tags
+    const flawId = flaw.issue_id || 'Unknown';
+    const cweName = flaw.finding_details?.cwe?.name || 'Unknown';
+    const cweId = flaw.finding_details?.cwe?.id || 'Unknown';
+    const cweTag = cweId !== 'Unknown' ? `CWE_${cweId}` : '';
+
+    // Format the description as HTML
+    const description = formatDescriptionHTML(flaw, {
         source_base_path_1,
         source_base_path_2,
         source_base_path_3,
         commit_hash
     });
 
+    // Now create the work item
+    const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.2-preview.3`;
+    const tags = cweTag ? `Veracode;Security;${cweTag}` : 'Veracode;Security';
+    const payload = [
+        {
+            op: 'add',
+            path: '/fields/System.Title',
+            value: `Veracode Flaw (Static): ${cweName}, Flaw ${flawId}`
+        },
+        {
+            op: 'add',
+            path: '/fields/System.Description',
+            value: description
+        },
+        {
+            op: 'add',
+            path: '/fields/System.Tags',
+            value: tags
+        },
+        {
+            op: 'add',
+            path: '/fields/Microsoft.VSTS.Common.Severity',
+            value: mapSeverity(flaw.finding_details?.severity)
+        }
+    ];
+
+    if (debug === 'true') {
+        console.log('Creating work item with:');
+        console.log('Base URL:', adoClient.defaults.baseURL);
+        console.log('Organization:', adoOrg);
+        console.log('Project:', project);
+        console.log('URL:', url);
+        console.log('Full URL:', `${adoClient.defaults.baseURL}${url}`);
+        console.log('Payload:', JSON.stringify(payload, null, 2));
+    }
+
     try {
-        // First, get the work item type reference
-        if (debug === 'true') {
-            console.log('Getting work item type reference...');
-        }
-        const typeResponse = await adoClient.get(`/${adoOrg}/${project}/_apis/wit/workitemTypes/${workItemType}?api-version=7.0`);
-        
-        if (debug === 'true') {
-            console.log('Work item type details:', JSON.stringify(typeResponse.data, null, 2));
-        }
-
-        // Now create the work item
-        const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.2-preview.3`;
-        const payload = [
-            {
-                op: 'add',
-                path: '/fields/System.Title',
-                value: `[Veracode] ${flaw.issue_id}: ${flaw.finding_details?.cwe?.name || 'Security Finding'}`
-            },
-            {
-                op: 'add',
-                path: '/fields/System.Description',
-                value: description
-            },
-            {
-                op: 'add',
-                path: '/fields/System.Tags',
-                value: 'Veracode;Security'
-            },
-            {
-                op: 'add',
-                path: '/fields/Microsoft.VSTS.Common.Severity',
-                value: mapSeverity(flaw.finding_details?.severity)
-            }
-        ];
-
-        if (debug === 'true') {
-            console.log('Creating work item with:');
-            console.log('Base URL:', adoClient.defaults.baseURL);
-            console.log('Organization:', adoOrg);
-            console.log('Project:', project);
-            console.log('URL:', url);
-            console.log('Full URL:', `${adoClient.defaults.baseURL}${url}`);
-            console.log('Payload:', JSON.stringify(payload, null, 2));
-        }
-
         const response = await adoClient.post(url, payload);
-
         if (debug === 'true') {
             console.log('Response:', JSON.stringify(response.data, null, 2));
         }
-
         return response.data;
     } catch (error) {
         if (debug === 'true') {
@@ -186,40 +181,62 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
     }
 }
 
-function formatDescription(flaw, params) {
+function formatDescriptionHTML(flaw, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash } = params;
-    
-    let description = `# Veracode Security Finding\n\n`;
-    description += `## Details\n\n`;
-    description += `- **Issue ID**: ${flaw.issue_id}\n`;
-    description += `- **Severity**: ${flaw.finding_details?.severity || 'Unknown'}\n`;
-    description += `- **CWE ID**: ${flaw.finding_details?.cwe?.id || 'Unknown'}\n`;
-    description += `- **Category**: ${flaw.finding_details?.finding_category?.name || 'Unknown'}\n\n`;
-    
-    description += `## Description\n\n${flaw.description}\n\n`;
-    
-    if (flaw.finding_details?.procedure) {
-        description += `## Procedure\n\n${flaw.finding_details.procedure}\n\n`;
-    }
+    const issueId = flaw.issue_id || 'Unknown';
+    const severity = flaw.finding_details?.severity || 'Unknown';
+    const cweId = flaw.finding_details?.cwe?.id || 'Unknown';
+    const cweName = flaw.finding_details?.cwe?.name || 'Unknown';
+    const cweUrl = flaw.finding_details?.cwe?.url || (cweId !== 'Unknown' ? `https://cwe.mitre.org/data/definitions/${cweId}.html` : '');
+    const category = flaw.finding_details?.finding_category?.name || 'Unknown';
+    const moduleName = flaw.finding_details?.module_name || 'Unknown';
+    let filePath = flaw.finding_details?.file_path || 'Unknown';
+    if (source_base_path_1) filePath = filePath.replace(source_base_path_1, '');
+    if (source_base_path_2) filePath = filePath.replace(source_base_path_2, '');
+    if (source_base_path_3) filePath = filePath.replace(source_base_path_3, '');
+    const lineNumber = flaw.finding_details?.file_line_number || 'Unknown';
+    const attackVector = flaw.finding_details?.attack_vector || 'Unknown';
+    const descriptionText = flaw.description || '';
+    const procedure = flaw.finding_details?.procedure || '';
+    const references = flaw.finding_details?.references || [];
+    const veracodeLink = flaw.finding_details?.veracode_link || '';
+    const buildId = flaw.finding_details?.build_id || '';
+    const policyLink = flaw.finding_details?.policy_link || '';
 
-    // Add file information if available
-    if (flaw.finding_details?.file_path) {
-        let filePath = flaw.finding_details.file_path;
-        if (source_base_path_1) filePath = filePath.replace(source_base_path_1, '');
-        if (source_base_path_2) filePath = filePath.replace(source_base_path_2, '');
-        if (source_base_path_3) filePath = filePath.replace(source_base_path_3, '');
-        
-        description += `## Location\n\n`;
-        description += `- **File**: ${filePath}\n`;
-        if (flaw.finding_details.file_line_number) {
-            description += `- **Line**: ${flaw.finding_details.file_line_number}\n`;
-        }
-        if (commit_hash) {
-            description += `- **Commit**: ${commit_hash}\n`;
-        }
+    let desc = '';
+    desc += `<b>Veracode Links:</b> `;
+    if (policyLink) {
+        desc += `<a href='${policyLink}'>Application Policy Flaw</a>`;
+    } else if (veracodeLink) {
+        desc += `<a href='${veracodeLink}'>Flaw Link</a>`;
+    } else {
+        desc += 'N/A';
     }
-
-    return description;
+    desc += `<br>`;
+    desc += `<b>CWE:</b> <a href='${cweUrl}'>[${cweId} ${cweName}]</a><br>`;
+    desc += `<b>Module:</b> ${moduleName}<br>`;
+    desc += `<b>Source:</b> ${filePath}<br>`;
+    desc += `<b>Line Number:</b> ${lineNumber}<br>`;
+    desc += `<b>Attack Vector:</b> ${attackVector}<br>`;
+    desc += `<b>Description:</b> ${descriptionText}<br>`;
+    if (procedure) {
+        desc += `<b>Procedure:</b> ${procedure}<br>`;
+    }
+    if (commit_hash) {
+        desc += `<b>Commit:</b> ${commit_hash}<br>`;
+    }
+    if (references && Array.isArray(references) && references.length > 0) {
+        desc += `<b>References:</b><ul>`;
+        for (const ref of references) {
+            if (ref.url) {
+                desc += `<li><a href='${ref.url}'>${ref.title || ref.url}</a></li>`;
+            } else {
+                desc += `<li>${ref.title || ref}</li>`;
+            }
+        }
+        desc += `</ul>`;
+    }
+    return desc;
 }
 
 function mapSeverity(veracodeSeverity) {
