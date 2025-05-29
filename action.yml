@@ -1,6 +1,10 @@
 name: 'Veracode scan results to GitHub issues Action'
-description: 'Import the results of a Veracode scan as Issues for a repo'
+description: 'Import the results of a Veracode scan as Issues for a repo or Azure DevOps work items'
 inputs:
+  dts_type:
+    description: 'Type of defect tracking system to use (GITHUB or ADO)'
+    required: false
+    default: 'GITHUB'
   scan-results-json:
     description: 'Scan results file'
     required: true
@@ -37,7 +41,19 @@ inputs:
   repo_name:
     description: repo name
     required: false
-
+  ADO_PAT:
+    description: 'Azure DevOps Personal Access Token'
+    required: false
+  ADO_ORG:
+    description: 'Azure DevOps Organization'
+    required: false
+  ADO_PROJECT:
+    description: 'Azure DevOps Project'
+    required: false
+  ADO_WORK_ITEM_TYPE:
+    description: 'Azure DevOps Work Item Type (Bug, Issue, Task, Epic, Feature, Test Case, User Story)'
+    required: false
+    default: 'Issue'
 
 runs:
   using: 'node20'
