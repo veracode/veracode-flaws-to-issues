@@ -46,7 +46,7 @@ async function importFlawsToADO(params) {
         console.log('This is a policy scan');
         if ('_embedded' in flawData) {
             console.log('Flaws found to import!');
-            flaws = flawData._embedded.flaws || [];
+            flaws = flawData._embedded.findings || [];
         } else {
             console.log('No flaws found to import!');
             return;
@@ -104,7 +104,7 @@ async function createWorkItem(adoClient, project, workItemType, flaw, params) {
             {
                 op: 'add',
                 path: '/fields/System.Title',
-                value: `[Veracode] ${flaw.issue_id}: ${flaw.title}`
+                value: `[Veracode] ${flaw.issue_id}: ${flaw.finding_details?.cwe?.name || 'Security Finding'}`
             },
             {
                 op: 'add',
@@ -119,7 +119,7 @@ async function createWorkItem(adoClient, project, workItemType, flaw, params) {
             {
                 op: 'add',
                 path: '/fields/Microsoft.VSTS.Common.Severity',
-                value: mapSeverity(flaw.severity)
+                value: mapSeverity(flaw.finding_details?.severity)
             }
         ]
     );
@@ -133,27 +133,27 @@ function formatDescription(flaw, params) {
     let description = `# Veracode Security Finding\n\n`;
     description += `## Details\n\n`;
     description += `- **Issue ID**: ${flaw.issue_id}\n`;
-    description += `- **Severity**: ${flaw.severity}\n`;
-    description += `- **CWE ID**: ${flaw.cwe_id}\n`;
-    description += `- **Category**: ${flaw.category}\n\n`;
+    description += `- **Severity**: ${flaw.finding_details?.severity || 'Unknown'}\n`;
+    description += `- **CWE ID**: ${flaw.finding_details?.cwe?.id || 'Unknown'}\n`;
+    description += `- **Category**: ${flaw.finding_details?.finding_category?.name || 'Unknown'}\n\n`;
     
     description += `## Description\n\n${flaw.description}\n\n`;
     
-    if (flaw.recommendation) {
-        description += `## Recommendation\n\n${flaw.recommendation}\n\n`;
+    if (flaw.finding_details?.procedure) {
+        description += `## Procedure\n\n${flaw.finding_details.procedure}\n\n`;
     }
 
     // Add file information if available
-    if (flaw.file) {
-        let filePath = flaw.file;
+    if (flaw.finding_details?.file_path) {
+        let filePath = flaw.finding_details.file_path;
         if (source_base_path_1) filePath = filePath.replace(source_base_path_1, '');
         if (source_base_path_2) filePath = filePath.replace(source_base_path_2, '');
         if (source_base_path_3) filePath = filePath.replace(source_base_path_3, '');
         
         description += `## Location\n\n`;
         description += `- **File**: ${filePath}\n`;
-        if (flaw.line) {
-            description += `- **Line**: ${flaw.line}\n`;
+        if (flaw.finding_details.file_line_number) {
+            description += `- **Line**: ${flaw.finding_details.file_line_number}\n`;
         }
         if (commit_hash) {
             description += `- **Commit**: ${commit_hash}\n`;
@@ -165,11 +165,11 @@ function formatDescription(flaw, params) {
 
 function mapSeverity(veracodeSeverity) {
     const severityMap = {
-        'Very High': '1 - Critical',
-        'High': '2 - High',
-        'Medium': '3 - Medium',
-        'Low': '4 - Low',
-        'Very Low': '5 - Low'
+        5: '1 - Critical',
+        4: '2 - High',
+        3: '3 - Medium',
+        2: '4 - Low',
+        1: '5 - Low'
     };
     return severityMap[veracodeSeverity] || '3 - Medium';
 }
