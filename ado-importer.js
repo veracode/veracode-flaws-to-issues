@@ -72,7 +72,7 @@ async function importFlawsToADO(params) {
     for (const flaw of flaws) {
         try {
             // Create work item
-            const workItem = await createWorkItem(adoClient, adoProject, adoWorkItemType, flaw, {
+            const workItem = await createWorkItem(adoClient, adoOrg, adoProject, adoWorkItemType, flaw, {
                 source_base_path_1,
                 source_base_path_2,
                 source_base_path_3,
@@ -111,7 +111,7 @@ async function importFlawsToADO(params) {
     }
 }
 
-async function createWorkItem(adoClient, project, workItemType, flaw, params) {
+async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
 
     // Format the description with markdown
