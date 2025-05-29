@@ -22,9 +22,10 @@ async function importFlawsToADO(params) {
     const flawData = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
     
     // Initialize ADO API client
-    const baseUrl = `https://dev.azure.com/${adoOrg}`;
+    const baseUrl = `https://dev.azure.com`;
     if (debug === 'true') {
         console.log(`Initializing ADO client with base URL: ${baseUrl}`);
+        console.log(`Organization: ${adoOrg}`);
         console.log(`Project: ${adoProject}`);
         console.log(`Work Item Type: ${adoWorkItemType}`);
     }
@@ -121,7 +122,7 @@ async function createWorkItem(adoClient, project, workItemType, flaw, params) {
         commit_hash
     });
 
-    const url = `/${project}/_apis/wit/workitems/${workItemType}?api-version=6.0`;
+    const url = `/${adoOrg}/${project}/_apis/wit/workitems/${workItemType}?api-version=6.0`;
     const payload = [
         {
             op: 'add',
