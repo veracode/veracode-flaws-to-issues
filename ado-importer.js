@@ -122,7 +122,9 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
         commit_hash
     });
 
-    const url = `/${adoOrg}/${project}/_apis/wit/workitems/${workItemType}?api-version=6.0`;
+    // Fix: Use the correct URL format for creating work items
+    // The organization should be part of the base URL, not the path
+    const url = `/${project}/_apis/wit/workitems/${workItemType}?api-version=6.0`;
     const payload = [
         {
             op: 'add',
@@ -148,7 +150,10 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
 
     if (debug === 'true') {
         console.log('Creating work item with:');
+        console.log('Base URL:', adoClient.defaults.baseURL);
+        console.log('Organization:', adoOrg);
         console.log('URL:', url);
+        console.log('Full URL:', `${adoClient.defaults.baseURL}/${adoOrg}${url}`);
         console.log('Payload:', JSON.stringify(payload, null, 2));
     }
 
