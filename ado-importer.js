@@ -22,8 +22,15 @@ async function importFlawsToADO(params) {
     const flawData = JSON.parse(fs.readFileSync(resultsFile, 'utf8'));
     
     // Initialize ADO API client
+    const baseUrl = `https://dev.azure.com/${adoOrg}`;
+    if (debug === 'true') {
+        console.log(`Initializing ADO client with base URL: ${baseUrl}`);
+        console.log(`Project: ${adoProject}`);
+        console.log(`Work Item Type: ${adoWorkItemType}`);
+    }
+
     const adoClient = axios.create({
-        baseURL: `https://dev.azure.com/${adoOrg}`,
+        baseURL: baseUrl,
         auth: {
             username: 'Basic',
             password: adoPat
@@ -68,7 +75,8 @@ async function importFlawsToADO(params) {
                 source_base_path_1,
                 source_base_path_2,
                 source_base_path_3,
-                commit_hash
+                commit_hash,
+                debug
             });
 
             if (debug === 'true') {
@@ -78,6 +86,22 @@ async function importFlawsToADO(params) {
             // Wait between API calls to avoid rate limiting
             await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
         } catch (error) {
+            if (debug === 'true') {
+                console.error('Detailed error information:');
+                console.error('Error message:', error.message);
+                if (error.response) {
+                    console.error('Response status:', error.response.status);
+                    console.error('Response data:', error.response.data);
+                    console.error('Response headers:', error.response.headers);
+                }
+                if (error.request) {
+                    console.error('Request details:', {
+                        method: error.request.method,
+                        path: error.request.path,
+                        headers: error.request.headers
+                    });
+                }
+            }
             core.error(`Failed to create work item for flaw ${flaw.issue_id}: ${error.message}`);
             if (fail_build === 'true') {
                 throw error;
@@ -87,7 +111,7 @@ async function importFlawsToADO(params) {
 }
 
 async function createWorkItem(adoClient, project, workItemType, flaw, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
 
     // Format the description with markdown
     const description = formatDescription(flaw, {
@@ -97,32 +121,42 @@ async function createWorkItem(adoClient, project, workItemType, flaw, params) {
         commit_hash
     });
 
+    const url = `/${project}/_apis/wit/workitems/${workItemType}?api-version=6.0`;
+    const payload = [
+        {
+            op: 'add',
+            path: '/fields/System.Title',
+            value: `[Veracode] ${flaw.issue_id}: ${flaw.finding_details?.cwe?.name || 'Security Finding'}`
+        },
+        {
+            op: 'add',
+            path: '/fields/System.Description',
+            value: description
+        },
+        {
+            op: 'add',
+            path: '/fields/System.Tags',
+            value: 'Veracode;Security'
+        },
+        {
+            op: 'add',
+            path: '/fields/Microsoft.VSTS.Common.Severity',
+            value: mapSeverity(flaw.finding_details?.severity)
+        }
+    ];
+
+    if (debug === 'true') {
+        console.log('Creating work item with:');
+        console.log('URL:', url);
+        console.log('Payload:', JSON.stringify(payload, null, 2));
+    }
+
     // Create the work item
-    const response = await adoClient.post(
-        `/${project}/_apis/wit/workitems/${workItemType}?api-version=6.0`,
-        [
-            {
-                op: 'add',
-                path: '/fields/System.Title',
-                value: `[Veracode] ${flaw.issue_id}: ${flaw.finding_details?.cwe?.name || 'Security Finding'}`
-            },
-            {
-                op: 'add',
-                path: '/fields/System.Description',
-                value: description
-            },
-            {
-                op: 'add',
-                path: '/fields/System.Tags',
-                value: 'Veracode;Security'
-            },
-            {
-                op: 'add',
-                path: '/fields/Microsoft.VSTS.Common.Severity',
-                value: mapSeverity(flaw.finding_details?.severity)
-            }
-        ]
-    );
+    const response = await adoClient.post(url, payload);
+
+    if (debug === 'true') {
+        console.log('Response:', JSON.stringify(response.data, null, 2));
+    }
 
     return response.data;
 }
