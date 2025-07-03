@@ -12,7 +12,13 @@ The system is selected using the `dts_type` parameter, which defaults to `GITHUB
 
 ## Important Note on Issue/Work Item Management
 
-This action will only **open and reopen** issues/work items, but **never close them**. This ensures that security findings remain visible until manually addressed by the development team.
+This action will **open, reopen, and close** issues/work items based on the current scan results:
+
+- **New findings**: Creates new work items
+- **Existing findings**: Reopens closed work items or skips if already open
+- **Resolved findings**: Closes work items that are no longer present in the scan results
+
+This ensures that security findings remain tracked and visible until properly addressed, and that resolved issues are automatically closed when they no longer appear in scans.
 
 ## Importing Pipeline Scan flaws
 For a Pipeline Scan, this is typically done with the filtered results of the Pipeline Scan, see [Pipeline Scan commands](https://help.veracode.com/r/r_pipeline_scan_commands).  
@@ -382,4 +388,3 @@ The PAT should be scoped to the specific project where work items will be create
           ADO_ORG: 'your-organization'
           ADO_PROJECT: 'your-project'
           ADO_WORK_ITEM_TYPE: 'Bug'
-```
