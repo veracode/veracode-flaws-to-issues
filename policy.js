@@ -141,6 +141,7 @@ async function processPolicyFlaws(options, flawData) {
     // walk through the list of flaws in the input file
     console.log(`Processing input file: \"${options.resultsFile}\" with ${flawData._embedded.findings.length} flaws to process.`)
     var index;
+    var mitigatedCount=0;
     for( index=0; index < flawData._embedded.findings.length; index++) {
         let flaw = flawData._embedded.findings[index];
         let vid = createVeracodeFlawID(flaw);
@@ -151,6 +152,7 @@ async function processPolicyFlaws(options, flawData) {
         // check for mitigation
         if(flaw.finding_status.resolution_status == 'APPROVED') {
             console.log('Flaw mitigated, skipping import');
+            mitigatedCount++;
             continue;
         }
 
@@ -372,7 +374,7 @@ old rewrite path */
             await util.sleep(waitTime * 1000);
     }
 
-    return index;
+    return index - mitigatedCount;
 }
 
 module.exports = { processPolicyFlaws }
