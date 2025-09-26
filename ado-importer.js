@@ -38,6 +38,7 @@ async function importFlawsToADO(params) {
         }
     });
 
+
     // Determine scan type and get flaws
     let scanType = '';
     let flaws = [];
@@ -45,7 +46,7 @@ async function importFlawsToADO(params) {
     if ('pipeline_scan' in flawData) {
         scanType = 'pipeline';
         console.log('This is a pipeline scan');
-        flaws = flawData;
+        flaws = flawData.findings || [];
     } else {
         scanType = 'policy';
         console.log('This is a policy scan');
@@ -79,87 +80,41 @@ async function importFlawsToADO(params) {
     // Track which flaws we've processed to identify work items that should be closed
     const processedFlawIds = new Set();
 
-    // Process each flaw
+    // Process the flaws using ADO-specific functions
     let createdCount = 0;
     let reopenedCount = 0;
     let skippedCount = 0;
 
-    for (const flaw of flaws) {
-        try {
-            const flawId = flaw.issue_id || 'Unknown';
-            const cweId = flaw.finding_details?.cwe?.id || 'Unknown';
-            const cweName = flaw.finding_details?.cwe?.name || 'Unknown';
-            
-            // Create a unique identifier for the flaw (similar to GitHub implementation)
-            const veracodeFlawId = createVeracodeFlawId(flaw, scanType);
-            
-            // Track this flaw as processed
-            processedFlawIds.add(veracodeFlawId);
-            
-            if (debug === 'true') {
-                console.log(`Processing flaw ${flawId} with Veracode ID: ${veracodeFlawId}`);
-            }
-            
-            // Check if work item already exists with enhanced duplicate detection
-            const existingWorkItem = validateNoDuplicates(existingWorkItems, veracodeFlawId, debug);
-            
-            if (existingWorkItem) {
-                const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
-                console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
-                
-                if (workItemState === 'Closed' || workItemState === 'Resolved') {
-                    console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
-                    await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
-                        source_base_path_1,
-                        source_base_path_2,
-                        source_base_path_3,
-                        commit_hash,
-                        debug
-                    });
-                    reopenedCount++;
-                } else {
-                    console.log(`Work item ${existingWorkItem.id} is already open (State: ${workItemState}), skipping creation`);
-                    skippedCount++;
-                }
-            } else {
-                // Create new work item
-                console.log(`Creating new work item for flaw ${flawId} (Veracode ID: ${veracodeFlawId})`);
-                const workItem = await createWorkItem(adoClient, adoOrg, adoProject, adoWorkItemType, flaw, {
-                    source_base_path_1,
-                    source_base_path_2,
-                    source_base_path_3,
-                    commit_hash,
-                    debug
-                });
-
-                console.log(`Successfully created work item ${workItem.id} for flaw ${flawId}`);
-                createdCount++;
-            }
-
-            // Wait between API calls to avoid rate limiting
-            await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
-        } catch (error) {
-            if (debug === 'true') {
-                console.error('Detailed error information:');
-                console.error('Error message:', error.message);
-                if (error.response) {
-                    console.error('Response status:', error.response.status);
-                    console.error('Response data:', error.response.data);
-                    console.error('Response headers:', error.response.headers);
-                }
-                if (error.request) {
-                    console.error('Request details:', {
-                        method: error.request.method,
-                        path: error.request.path,
-                        headers: error.request.headers
-                    });
-                }
-            }
-            core.error(`Failed to process work item for flaw ${flaw.issue_id}: ${error.message}`);
-            if (fail_build === 'true') {
-                throw error;
-            }
-        }
+    if (scanType === 'pipeline') {
+        const result = await processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
+            source_base_path_1,
+            source_base_path_2,
+            source_base_path_3,
+            commit_hash,
+            waitTime,
+            fail_build,
+            debug,
+            existingWorkItems,
+            processedFlawIds
+        });
+        createdCount = result.createdCount;
+        reopenedCount = result.reopenedCount;
+        skippedCount = result.skippedCount;
+    } else {
+        const result = await processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
+            source_base_path_1,
+            source_base_path_2,
+            source_base_path_3,
+            commit_hash,
+            waitTime,
+            fail_build,
+            debug,
+            existingWorkItems,
+            processedFlawIds
+        });
+        createdCount = result.createdCount;
+        reopenedCount = result.reopenedCount;
+        skippedCount = result.skippedCount;
     }
 
     // Close work items that are no longer present in the scan results
@@ -404,12 +359,18 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
 }
 
 async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug, scanType } = params;
 
-    // Extract fields for title and tags
+    // Extract fields for title and tags based on scan type
     const flawId = flaw.issue_id || 'Unknown';
-    const cweName = flaw.finding_details?.cwe?.name || 'Unknown';
-    const cweId = flaw.finding_details?.cwe?.id || 'Unknown';
+    let cweName, cweId;
+    if (scanType === 'pipeline') {
+        cweName = flaw.issue_type || 'Unknown';
+        cweId = flaw.cwe_id || 'Unknown';
+    } else {
+        cweName = flaw.finding_details?.cwe?.name || 'Unknown';
+        cweId = flaw.finding_details?.cwe?.id || 'Unknown';
+    }
     const cweTag = cweId !== 'Unknown' ? `CWE_${cweId}` : '';
 
     // Format the description as HTML
@@ -417,7 +378,8 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
         source_base_path_1,
         source_base_path_2,
         source_base_path_3,
-        commit_hash
+        commit_hash,
+        scanType
     });
 
     // Now create the work item
@@ -442,7 +404,7 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
         {
             op: 'add',
             path: '/fields/Microsoft.VSTS.Common.Severity',
-            value: mapSeverity(flaw.finding_details?.severity)
+            value: mapSeverity(scanType === 'pipeline' ? flaw.severity : flaw.finding_details?.severity)
         }
     ];
 
@@ -477,26 +439,50 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
 }
 
 function formatDescriptionHTML(flaw, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, scanType } = params;
     const issueId = flaw.issue_id || 'Unknown';
-    const severity = flaw.finding_details?.severity || 'Unknown';
-    const cweId = flaw.finding_details?.cwe?.id || 'Unknown';
-    const cweName = flaw.finding_details?.cwe?.name || 'Unknown';
-    const cweUrl = flaw.finding_details?.cwe?.url || (cweId !== 'Unknown' ? `https://cwe.mitre.org/data/definitions/${cweId}.html` : '');
-    const category = flaw.finding_details?.finding_category?.name || 'Unknown';
-    const moduleName = flaw.finding_details?.module_name || 'Unknown';
-    let filePath = flaw.finding_details?.file_path || 'Unknown';
+    
+    // Extract fields based on scan type
+    let severity, cweId, cweName, cweUrl, category, moduleName, filePath, lineNumber, attackVector, descriptionText, procedure, references, veracodeLink, buildId, policyLink;
+    
+    if (scanType === 'pipeline') {
+        severity = flaw.severity || 'Unknown';
+        cweId = flaw.cwe_id || 'Unknown';
+        cweName = flaw.issue_type || 'Unknown';
+        cweUrl = cweId !== 'Unknown' ? `https://cwe.mitre.org/data/definitions/${cweId}.html` : '';
+        category = 'Unknown'; // Pipeline scans don't have category
+        moduleName = 'Unknown'; // Pipeline scans don't have module name
+        filePath = flaw.files?.source_file?.file || 'Unknown';
+        lineNumber = flaw.files?.source_file?.line || 'Unknown';
+        attackVector = 'Unknown'; // Pipeline scans don't have attack vector
+        descriptionText = flaw.display_text || '';
+        procedure = ''; // Pipeline scans don't have procedure
+        references = []; // Pipeline scans don't have references
+        veracodeLink = ''; // Pipeline scans don't have veracode link
+        buildId = ''; // Pipeline scans don't have build ID
+        policyLink = ''; // Pipeline scans don't have policy link
+    } else {
+        severity = flaw.finding_details?.severity || 'Unknown';
+        cweId = flaw.finding_details?.cwe?.id || 'Unknown';
+        cweName = flaw.finding_details?.cwe?.name || 'Unknown';
+        cweUrl = flaw.finding_details?.cwe?.url || (cweId !== 'Unknown' ? `https://cwe.mitre.org/data/definitions/${cweId}.html` : '');
+        category = flaw.finding_details?.finding_category?.name || 'Unknown';
+        moduleName = flaw.finding_details?.module_name || 'Unknown';
+        filePath = flaw.finding_details?.file_path || 'Unknown';
+        lineNumber = flaw.finding_details?.file_line_number || 'Unknown';
+        attackVector = flaw.finding_details?.attack_vector || 'Unknown';
+        descriptionText = flaw.description || '';
+        procedure = flaw.finding_details?.procedure || '';
+        references = flaw.finding_details?.references || [];
+        veracodeLink = flaw.finding_details?.veracode_link || '';
+        buildId = flaw.finding_details?.build_id || '';
+        policyLink = flaw.finding_details?.policy_link || '';
+    }
+    
+    // Apply path replacements
     if (source_base_path_1) filePath = filePath.replace(source_base_path_1, '');
     if (source_base_path_2) filePath = filePath.replace(source_base_path_2, '');
     if (source_base_path_3) filePath = filePath.replace(source_base_path_3, '');
-    const lineNumber = flaw.finding_details?.file_line_number || 'Unknown';
-    const attackVector = flaw.finding_details?.attack_vector || 'Unknown';
-    const descriptionText = flaw.description || '';
-    const procedure = flaw.finding_details?.procedure || '';
-    const references = flaw.finding_details?.references || [];
-    const veracodeLink = flaw.finding_details?.veracode_link || '';
-    const buildId = flaw.finding_details?.build_id || '';
-    const policyLink = flaw.finding_details?.policy_link || '';
 
     let desc = '';
     desc += `<b>Veracode Links:</b> `;
@@ -594,6 +580,176 @@ function isWorkItemMatchingFlaw(workItem, flawId) {
     }
     
     return false;
+}
+
+// ADO-specific pipeline flaws processing
+async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds } = params;
+    
+    let createdCount = 0;
+    let reopenedCount = 0;
+    let skippedCount = 0;
+    
+    const flaws = flawData.findings || [];
+    console.log(`Processing ${flaws.length} pipeline flaws for ADO`);
+    
+    for (const flaw of flaws) {
+        try {
+            const flawId = flaw.issue_id || 'Unknown';
+            const cweId = flaw.cwe_id || 'Unknown';
+            const cweName = flaw.issue_type || 'Unknown';
+            
+            // Create a unique identifier for the flaw
+            const veracodeFlawId = createVeracodeFlawId(flaw, 'pipeline');
+            
+            // Track this flaw as processed
+            processedFlawIds.add(veracodeFlawId);
+            
+            if (debug === 'true') {
+                console.log(`Processing pipeline flaw ${flawId} with Veracode ID: ${veracodeFlawId}`);
+            }
+            
+            // Check if work item already exists
+            const existingWorkItem = validateNoDuplicates(existingWorkItems, veracodeFlawId, debug);
+            
+            if (existingWorkItem) {
+                const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
+                console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
+                
+                if (workItemState === 'Closed' || workItemState === 'Resolved') {
+                    console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
+                    await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
+                        source_base_path_1,
+                        source_base_path_2,
+                        source_base_path_3,
+                        commit_hash,
+                        debug
+                    });
+                    reopenedCount++;
+                } else {
+                    console.log(`Work item ${existingWorkItem.id} is already open (State: ${workItemState}), skipping creation`);
+                    skippedCount++;
+                }
+            } else {
+                // Create new work item
+                console.log(`Creating new work item for pipeline flaw ${flawId} (Veracode ID: ${veracodeFlawId})`);
+                const workItem = await createWorkItem(adoClient, adoOrg, adoProject, adoWorkItemType, flaw, {
+                    source_base_path_1,
+                    source_base_path_2,
+                    source_base_path_3,
+                    commit_hash,
+                    debug,
+                    scanType: 'pipeline'
+                });
+
+                console.log(`Successfully created work item ${workItem.id} for flaw ${flawId}`);
+                createdCount++;
+            }
+
+            // Wait between API calls to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        } catch (error) {
+            if (debug === 'true') {
+                console.error('Detailed error information for pipeline flaw:');
+                console.error('Error message:', error.message);
+                if (error.response) {
+                    console.error('Response status:', error.response.status);
+                    console.error('Response data:', error.response.data);
+                }
+            }
+            core.error(`Failed to process pipeline work item for flaw ${flaw.issue_id}: ${error.message}`);
+            if (fail_build === 'true') {
+                throw error;
+            }
+        }
+    }
+    
+    return { createdCount, reopenedCount, skippedCount };
+}
+
+// ADO-specific policy flaws processing
+async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds } = params;
+    
+    let createdCount = 0;
+    let reopenedCount = 0;
+    let skippedCount = 0;
+    
+    const flaws = flawData._embedded?.findings || [];
+    console.log(`Processing ${flaws.length} policy flaws for ADO`);
+    
+    for (const flaw of flaws) {
+        try {
+            const flawId = flaw.issue_id || 'Unknown';
+            const cweId = flaw.finding_details?.cwe?.id || 'Unknown';
+            const cweName = flaw.finding_details?.cwe?.name || 'Unknown';
+            
+            // Create a unique identifier for the flaw
+            const veracodeFlawId = createVeracodeFlawId(flaw, 'policy');
+            
+            // Track this flaw as processed
+            processedFlawIds.add(veracodeFlawId);
+            
+            if (debug === 'true') {
+                console.log(`Processing policy flaw ${flawId} with Veracode ID: ${veracodeFlawId}`);
+            }
+            
+            // Check if work item already exists
+            const existingWorkItem = validateNoDuplicates(existingWorkItems, veracodeFlawId, debug);
+            
+            if (existingWorkItem) {
+                const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
+                console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
+                
+                if (workItemState === 'Closed' || workItemState === 'Resolved') {
+                    console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
+                    await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
+                        source_base_path_1,
+                        source_base_path_2,
+                        source_base_path_3,
+                        commit_hash,
+                        debug
+                    });
+                    reopenedCount++;
+                } else {
+                    console.log(`Work item ${existingWorkItem.id} is already open (State: ${workItemState}), skipping creation`);
+                    skippedCount++;
+                }
+            } else {
+                // Create new work item
+                console.log(`Creating new work item for policy flaw ${flawId} (Veracode ID: ${veracodeFlawId})`);
+                const workItem = await createWorkItem(adoClient, adoOrg, adoProject, adoWorkItemType, flaw, {
+                    source_base_path_1,
+                    source_base_path_2,
+                    source_base_path_3,
+                    commit_hash,
+                    debug,
+                    scanType: 'policy'
+                });
+
+                console.log(`Successfully created work item ${workItem.id} for flaw ${flawId}`);
+                createdCount++;
+            }
+
+            // Wait between API calls to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        } catch (error) {
+            if (debug === 'true') {
+                console.error('Detailed error information for policy flaw:');
+                console.error('Error message:', error.message);
+                if (error.response) {
+                    console.error('Response status:', error.response.status);
+                    console.error('Response data:', error.response.data);
+                }
+            }
+            core.error(`Failed to process policy work item for flaw ${flaw.issue_id}: ${error.message}`);
+            if (fail_build === 'true') {
+                throw error;
+            }
+        }
+    }
+    
+    return { createdCount, reopenedCount, skippedCount };
 }
 
 module.exports = {
