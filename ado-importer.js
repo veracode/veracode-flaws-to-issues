@@ -33,7 +33,6 @@ async function importFlawsToADO(params) {
     const adoClient = axios.create({
         baseURL: baseUrl,
         headers: {
-            'Content-Type': 'application/json',
             'Authorization': `Bearer ${adoPat}`
         }
     });
@@ -177,7 +176,11 @@ async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
             console.log('Querying existing work items with query:', JSON.stringify(query, null, 2));
         }
 
-        const response = await adoClient.post(url, query);
+        const response = await adoClient.post(url, query, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
         const workItemIds = response.data.workItems.map(wi => wi.id);
 
         if (workItemIds.length === 0) {
@@ -189,7 +192,11 @@ async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
 
         // Get full details for each work item
         const detailsUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems?ids=${workItemIds.join(',')}&$expand=all&api-version=7.2-preview.3`;
-        const detailsResponse = await adoClient.get(detailsUrl);
+        const detailsResponse = await adoClient.get(detailsUrl, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
         
         const workItems = detailsResponse.data.value || [];
         
@@ -347,7 +354,11 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
     }
 
     try {
-        const response = await adoClient.patch(url, payload);
+        const response = await adoClient.patch(url, payload, {
+            headers: {
+                'Content-Type': 'application/json-path+json'
+            }
+        });
         if (debug === 'true') {
             console.log('Work item reopened successfully:', response.data.id);
         }
@@ -419,7 +430,11 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
     }
 
     try {
-        const response = await adoClient.post(url, payload);
+        const response = await adoClient.post(url, payload, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
         if (debug === 'true') {
             console.log('Response:', JSON.stringify(response.data, null, 2));
         }
@@ -551,7 +566,11 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_h
     }
 
     try {
-        const response = await adoClient.patch(url, payload);
+        const response = await adoClient.patch(url, payload, {
+            headers: {
+                'Content-Type': 'application/json-path+json'
+            }
+        });
         if (debug === 'true') {
             console.log('Work item closed successfully:', response.data.id);
         }
