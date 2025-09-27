@@ -167,7 +167,7 @@ async function importFlawsToADO(params) {
 async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
     try {
         // Query for existing work items with Veracode tags
-        const url = `/${adoOrg}/${adoProject}/_apis/wit/wiql?api-version=7.2-preview.3`;
+        const url = `/${adoOrg}/${adoProject}/_apis/wit/wiql?api-version=7.2-preview.2`;
         const wiql = {
             query: "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] CONTAINS 'Veracode' ORDER BY [System.ChangedDate] DESC"
         };
