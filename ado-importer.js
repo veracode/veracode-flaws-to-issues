@@ -168,15 +168,15 @@ async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
     try {
         // Query for existing work items with Veracode tags
         const url = `/${adoOrg}/${adoProject}/_apis/wit/wiql?api-version=7.2-preview.3`;
-        const query = {
+        const wiql = {
             query: "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] CONTAINS 'Veracode' ORDER BY [System.ChangedDate] DESC"
         };
 
         if (debug === 'true') {
-            console.log('Querying existing work items with query:', JSON.stringify(query, null, 2));
+            console.log('Querying existing work items with query:', JSON.stringify(wiql, null, 2));
         }
 
-        const response = await adoClient.post(url, query, {
+        const response = await adoClient.post(url, wiql, {
             headers: {
                 'Content-Type': 'application/json'
             }
@@ -356,7 +356,7 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
     try {
         const response = await adoClient.patch(url, payload, {
             headers: {
-                'Content-Type': 'application/json-path+json'
+                'Content-Type': 'application/json-patch+json'
             }
         });
         if (debug === 'true') {
@@ -568,7 +568,7 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_h
     try {
         const response = await adoClient.patch(url, payload, {
             headers: {
-                'Content-Type': 'application/json-path+json'
+                'Content-Type': 'application/json-patch+json'
             }
         });
         if (debug === 'true') {
