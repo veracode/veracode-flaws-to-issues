@@ -260,10 +260,9 @@ function normalizeTitle(title) {
 function createVeracodeFlawId(flaw, scanType) {
     if (scanType === 'pipeline') {
         // For pipeline scans, use CWE:file:line format
-        const cweId = flaw.cwe_id || 'Unknown';
-        const fileName = flaw.files?.source_file?.file || 'Unknown';
-        const lineNumber = flaw.files?.source_file?.line || 'Unknown';
-        return `[VID:${cweId}:${fileName}:${lineNumber}]`;
+        const cweName = flaw.issue_type || 'Unknown';
+        const flawId = flaw.issue_id || 'Unknown';
+        return `Veracode Flaw (Static): ${cweName}, Flaw ${flawId}`
     } else {
         // For policy scans, use flaw number format
         const flawNumber = flaw.issue_id || 'Unknown';
@@ -635,7 +634,7 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
                 const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
                 console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
                 
-                if (workItemState === 'To Do' || workItemState === 'Doing') {
+                if (workItemState === 'Done') {
                     console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
                     await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
                         source_base_path_1,
