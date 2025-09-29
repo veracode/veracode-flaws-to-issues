@@ -72,7 +72,7 @@ async function importFlawsToADO(params) {
     // Track which work items are still active (not closed)
     const activeWorkItems = existingWorkItems.filter(wi => {
         const state = wi.fields['System.State'] || 'Unknown';
-        return state !== 'Closed' && state !== 'Resolved' && state !== 'Removed';
+        return state !== 'Done' && state !== 'Resolved' && state !== 'Removed';
     });
     console.log(`Found ${activeWorkItems.length} active work items to check for closure`);
 
@@ -635,7 +635,7 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
                 const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
                 console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
                 
-                if (workItemState === 'To Do' || workItemState === 'Done') {
+                if (workItemState === 'To Do' || workItemState === 'Doing') {
                     console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
                     await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
                         source_base_path_1,
