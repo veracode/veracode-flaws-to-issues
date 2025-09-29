@@ -167,7 +167,7 @@ async function importFlawsToADO(params) {
 async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
     try {
         // Query for existing work items with Veracode tags
-        const url = `/${adoOrg}/${adoProject}/_apis/wit/wiql?api-version=7.2-preview.2`;
+        const url = `/${adoOrg}/${adoProject}/_apis/wit/wiql?api-version=7.1`;
         const wiql = {
             query: "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] CONTAINS 'Veracode' ORDER BY [System.ChangedDate] DESC"
         };
@@ -191,7 +191,7 @@ async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
         console.log(`Found ${workItemIds.length} existing work items with Veracode tags`);
 
         // Get full details for each work item
-        const detailsUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems?ids=${workItemIds.join(',')}&$expand=all&api-version=7.2-preview.3`;
+        const detailsUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems?ids=${workItemIds.join(',')}&$expand=all&api-version=7.1`;
         const detailsResponse = await adoClient.get(detailsUrl, {
             headers: {
                 'Content-Type': 'application/json'
@@ -335,7 +335,7 @@ function validateNoDuplicates(existingWorkItems, veracodeFlawId, debug) {
 async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
     
-    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.2-preview.3`;
+    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.1`;
     const payload = [
         {
             op: 'replace',
@@ -394,7 +394,7 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
     });
 
     // Now create the work item
-    const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.2-preview.3`;
+    const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.1`;
     const tags = cweTag ? `Veracode;Security;${cweTag}` : 'Veracode;Security';
     const payload = [
         {
@@ -432,7 +432,7 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
     try {
         const response = await adoClient.post(url, payload, {
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json-patch+json'
             }
         });
         if (debug === 'true') {
@@ -547,7 +547,7 @@ function mapSeverity(veracodeSeverity) {
 }
 
 async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_hash, debug) {
-    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.2-preview.3`;
+    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.1`;
     const payload = [
         {
             op: 'replace',
