@@ -552,7 +552,7 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_h
         {
             op: 'replace',
             path: '/fields/System.State',
-            value: 'Closed'
+            value: 'Done'
         },
         {
             op: 'add',
@@ -635,7 +635,7 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
                 const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
                 console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
                 
-                if (workItemState === 'Closed' || workItemState === 'Resolved') {
+                if (workItemState === 'To Do' || workItemState === 'Done') {
                     console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
                     await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
                         source_base_path_1,
