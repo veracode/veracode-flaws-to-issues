@@ -191,14 +191,38 @@ async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
         console.log(`Found ${workItemIds.length} existing work items with Veracode tags`);
 
         // Get full details for each work item
-        const detailsUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems?ids=${workItemIds.join(',')}&$expand=all&api-version=7.1`;
-        const detailsResponse = await adoClient.get(detailsUrl, {
-            headers: {
-                'Content-Type': 'application/json'
+        //Get full details for each work item
+        const page_size = workItemIds.length < 200 ? workItemIds.length : 200
+
+        let workItems = [];
+        let skip = 0
+        let pagination = page_size
+        let hasMore = true
+        while (hasMore){
+            const tempItems = []
+            for (let i = skip; i < pagination; i++) {
+                tempItems.push(workItemIds[i])
             }
-        });
-        
-        const workItems = detailsResponse.data.value || [];
+
+            const detailsUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems?ids=${tempItems.join(',')}&api-version=7.1`;
+            const detailsResponse = await adoClient.get(detailsUrl, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if(workItemIds.length > pagination) {
+                workItems = workItems.concat(detailsResponse.data.value)
+                skip += page_size
+                pagination += page_size
+                if(pagination > workItemIds.length){
+                    pagination = workItemIds.length
+                }
+            } else {
+                workItems = workItems.concat(detailsResponse.data.value)
+                hasMore = false
+            }
+        }
         
         // Check for potential duplicates in the results
         const duplicateCheck = checkForDuplicateWorkItems(workItems, debug);
@@ -258,9 +282,17 @@ function normalizeTitle(title) {
 }
 
 function createVeracodeFlawId(flaw, scanType) {
-    const cweName = flaw.issue_type || 'Unknown';
-    const flawId = flaw.issue_id || 'Unknown';
-    return `Veracode Flaw (Static): ${cweName}, Flaw ${flawId}`
+    if (scanType === 'pipeline') {
+        // For pipeline scans, use CWE:file:line format
+        const cweName = flaw.issue_type || 'Unknown';
+        const flawId = flaw.issue_id || 'Unknown';
+        return `Veracode Flaw (Static): ${cweName}, Flaw ${flawId}`
+    } else {
+        // For policy scans, use flaw number format
+        const cweName = flaw.finding_details?.cwe?.name || 'Unknown';
+        const flawId = flaw.issue_id || 'Unknown';
+        return `Veracode Flaw (Static): ${cweName}, Flaw ${flawId}`
+    }
 }
 
 function findExistingWorkItem(existingWorkItems, veracodeFlawId) {
