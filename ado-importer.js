@@ -258,16 +258,9 @@ function normalizeTitle(title) {
 }
 
 function createVeracodeFlawId(flaw, scanType) {
-    if (scanType === 'pipeline') {
-        // For pipeline scans, use CWE:file:line format
-        const cweName = flaw.issue_type || 'Unknown';
-        const flawId = flaw.issue_id || 'Unknown';
-        return `Veracode Flaw (Static): ${cweName}, Flaw ${flawId}`
-    } else {
-        // For policy scans, use flaw number format
-        const flawNumber = flaw.issue_id || 'Unknown';
-        return `[VID:${flawNumber}]`;
-    }
+    const cweName = flaw.issue_type || 'Unknown';
+    const flawId = flaw.issue_id || 'Unknown';
+    return `Veracode Flaw (Static): ${cweName}, Flaw ${flawId}`
 }
 
 function findExistingWorkItem(existingWorkItems, veracodeFlawId) {
