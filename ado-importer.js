@@ -116,7 +116,7 @@ async function importFlawsToADO(params) {
     }
     
     // Populate duplicate detection data from existing work items
-    populateDuplicateDetectionData(existingWorkItems, duplicateDetectionData, scanType);
+    populateDuplicateDetectionData(existingWorkItems, duplicateDetectionData, scanType, debug);
 
     // Process the flaws using ADO-specific functions
     let createdCount = 0;
@@ -666,7 +666,11 @@ function isWorkItemMatchingFlaw(workItem, flawId) {
 }
 
 // Helper function to populate duplicate detection data from existing work items
-function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionData, scanType) {
+function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionData, scanType, debug) {
+    if (debug === 'true') {
+        console.log(`Populating duplicate detection data for ${scanType} scan with ${existingWorkItems.length} existing work items`);
+    }
+    
     existingWorkItems.forEach(workItem => {
         const title = workItem.fields['System.Title'] || '';
         const workItemId = workItem.id;
@@ -674,7 +678,16 @@ function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionDat
         
         // Extract Veracode Flaw ID from title
         const veracodeFlawId = getVeracodeFlawIDFromTitle(title);
-        if (!veracodeFlawId) return;
+        if (!veracodeFlawId) {
+            if (debug === 'true') {
+                console.log(`No Veracode Flaw ID found in title: "${title}"`);
+            }
+            return;
+        }
+        
+        if (debug === 'true') {
+            console.log(`Processing existing work item ${workItemId}: "${title}" -> Veracode ID: ${veracodeFlawId}`);
+        }
         
         if (scanType === 'pipeline') {
             // Parse pipeline flaw ID: [VID:CWE:filename:linenum]
@@ -695,6 +708,14 @@ function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionDat
                 
                 duplicateDetectionData.existingFlawNumbers[veracodeFlawId] = workItemId;
                 duplicateDetectionData.existingIssueStates[veracodeFlawId] = workItemState;
+                
+                if (debug === 'true') {
+                    console.log(`Added pipeline flaw data: File=${flawInfo.file}, CWE=${flawInfo.cwe}, Line=${flawInfo.line}, WorkItem=${workItemId}`);
+                }
+            } else {
+                if (debug === 'true') {
+                    console.log(`Failed to parse pipeline flaw ID: ${veracodeFlawId}`);
+                }
             }
         } else {
             // Parse policy flaw ID: [VID:FlawID]
@@ -704,9 +725,21 @@ function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionDat
                 duplicateDetectionData.existingFlaws[flawNum] = true;
                 duplicateDetectionData.existingFlawNumbers[flawNum] = workItemId;
                 duplicateDetectionData.existingIssueStates[flawNum] = workItemState;
+                
+                if (debug === 'true') {
+                    console.log(`Added policy flaw data: FlawNum=${flawNum}, WorkItem=${workItemId}`);
+                }
             }
         }
     });
+    
+    if (debug === 'true' && scanType === 'pipeline') {
+        console.log(`Final duplicate detection data for pipeline scan:`);
+        console.log(`  Files with flaws:`, Array.from(duplicateDetectionData.flawFiles.keys()));
+        for (const [file, flaws] of duplicateDetectionData.flawFiles.entries()) {
+            console.log(`  File ${file}:`, flaws);
+        }
+    }
 }
 
 // Helper function to extract Veracode Flaw ID from work item title
@@ -742,24 +775,42 @@ function parseVeracodeFlawID(vid) {
 }
 
 // Pipeline-specific duplicate detection (fuzzy matching)
-function pipelineIssueExists(flaw, duplicateDetectionData) {
+function pipelineIssueExists(flaw, duplicateDetectionData, debug) {
     const cweId = flaw.cwe_id || 'Unknown';
     const fileName = flaw.files?.source_file?.file || 'Unknown';
     const lineNumber = flaw.files?.source_file?.line || 'Unknown';
     
+    if (debug === 'true') {
+        console.log(`Checking pipeline duplicate for: CWE=${cweId}, File=${fileName}, Line=${lineNumber}`);
+        console.log(`Available files in duplicate detection data:`, Array.from(duplicateDetectionData.flawFiles.keys()));
+    }
+    
     if (!duplicateDetectionData.flawFiles.has(fileName)) {
+        if (debug === 'true') {
+            console.log(`File ${fileName} not found in existing flaws`);
+        }
         return null;
     }
     
     const existingFlaws = duplicateDetectionData.flawFiles.get(fileName);
     const newFlawLine = parseInt(lineNumber);
     
+    if (debug === 'true') {
+        console.log(`Found ${existingFlaws.length} existing flaws in file ${fileName}:`, existingFlaws);
+    }
+    
     for (const existingFlaw of existingFlaws) {
         // Check CWE match
         if (existingFlaw.cwe === cweId) {
             // Check line range (±10 lines)
             const existingFlawLine = parseInt(existingFlaw.line);
+            if (debug === 'true') {
+                console.log(`CWE match found! Checking line range: new=${newFlawLine}, existing=${existingFlawLine} (range: ${existingFlawLine - 10} to ${existingFlawLine + 10})`);
+            }
             if (newFlawLine >= (existingFlawLine - 10) && newFlawLine <= (existingFlawLine + 10)) {
+                if (debug === 'true') {
+                    console.log(`DUPLICATE FOUND! WorkItem ID: ${existingFlaw.workItemId}, State: ${existingFlaw.workItemState}`);
+                }
                 return {
                     workItemId: existingFlaw.workItemId,
                     workItemState: existingFlaw.workItemState
@@ -768,6 +819,9 @@ function pipelineIssueExists(flaw, duplicateDetectionData) {
         }
     }
     
+    if (debug === 'true') {
+        console.log(`No duplicate found for this flaw`);
+    }
     return null;
 }
 
@@ -814,7 +868,7 @@ async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWo
             }
             
             // Check if work item already exists using pipeline-specific fuzzy matching
-            const existingWorkItem = pipelineIssueExists(flaw, duplicateDetectionData);
+            const existingWorkItem = pipelineIssueExists(flaw, duplicateDetectionData, debug);
             
             if (existingWorkItem) {
                 const workItemState = existingWorkItem.workItemState;
