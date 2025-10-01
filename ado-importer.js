@@ -207,47 +207,90 @@ async function importFlawsToADO(params) {
 
 async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProject, debug) {
     try {
-        // Query for existing work items with Veracode tags
-        const url = `/${adoOrg}/${adoProject}/_apis/wit/wiql?api-version=7.2-preview.3`;
-        const query = {
-            query: "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] CONTAINS 'Veracode' ORDER BY [System.ChangedDate] DESC"
-        };
-
-        if (debug === 'true') {
-            console.log('Querying existing work items with query:', JSON.stringify(query, null, 2));
-        }
-
-        const response = await adoQueryClient.post(url, query);
-        const workItemIds = response.data.workItems.map(wi => wi.id);
-
-        if (workItemIds.length === 0) {
-            console.log('No existing work items with Veracode tags found');
-            return [];
-        }
-
-        console.log(`Found ${workItemIds.length} existing work items with Veracode tags`);
-
-        // Get full details for each work item
-        const detailsUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems?ids=${workItemIds.join(',')}&$expand=all&api-version=7.2-preview.3`;
-        const detailsResponse = await adoClient.get(detailsUrl);
+        // URL encode the organization and project names
+        const encodedOrg = encodeURIComponent(adoOrg);
+        const encodedProject = encodeURIComponent(adoProject);
         
-        const workItems = detailsResponse.data.value || [];
+        // Try different API versions and approaches
+        const apiVersions = ['7.0', '6.0', '5.1'];
+        let lastError = null;
         
-        // Check for potential duplicates in the results
-        const duplicateCheck = checkForDuplicateWorkItems(workItems, debug);
-        if (duplicateCheck.duplicates.length > 0) {
-            console.warn(`Found ${duplicateCheck.duplicates.length} potential duplicate work items in existing data:`);
-            duplicateCheck.duplicates.forEach(dup => {
-                console.warn(`  - Similar titles: "${dup.title1}" and "${dup.title2}"`);
-            });
+        for (const apiVersion of apiVersions) {
+            try {
+                const url = `/${encodedOrg}/${encodedProject}/_apis/wit/wiql?api-version=${apiVersion}`;
+                const query = {
+                    query: "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] Contains 'Veracode' ORDER BY [System.ChangedDate] DESC"
+                };
+
+                if (debug === 'true') {
+                    console.log(`Trying API version ${apiVersion}...`);
+                    console.log('Querying existing work items with query:', JSON.stringify(query, null, 2));
+                    console.log('Full URL:', `${adoQueryClient.defaults.baseURL}${url}`);
+                }
+
+                const response = await adoQueryClient.post(url, query);
+                const workItemIds = response.data.workItems.map(wi => wi.id);
+
+                if (workItemIds.length === 0) {
+                    console.log('No existing work items with Veracode tags found');
+                    return [];
+                }
+
+                console.log(`Found ${workItemIds.length} existing work items with Veracode tags using API version ${apiVersion}`);
+
+                // Get full details for each work item
+                const detailsUrl = `/${encodedOrg}/${encodedProject}/_apis/wit/workitems?ids=${workItemIds.join(',')}&$expand=all&api-version=${apiVersion}`;
+                const detailsResponse = await adoClient.get(detailsUrl);
+                
+                const workItems = detailsResponse.data.value || [];
+                
+                // Check for potential duplicates in the results
+                const duplicateCheck = checkForDuplicateWorkItems(workItems, debug);
+                if (duplicateCheck.duplicates.length > 0) {
+                    console.warn(`Found ${duplicateCheck.duplicates.length} potential duplicate work items in existing data:`);
+                    duplicateCheck.duplicates.forEach(dup => {
+                        console.warn(`  - Similar titles: "${dup.title1}" and "${dup.title2}"`);
+                    });
+                }
+                
+                return workItems;
+            } catch (error) {
+                lastError = error;
+                if (debug === 'true') {
+                    console.log(`API version ${apiVersion} failed:`, error.message);
+                    if (error.response) {
+                        console.log(`  Status: ${error.response.status}`);
+                        console.log(`  Data:`, error.response.data);
+                    }
+                }
+                // Continue to next API version
+            }
         }
         
-        return workItems;
+        // If all API versions failed, try a fallback approach using direct work items API
+        console.log('WIQL query failed, trying fallback approach...');
+        try {
+            const fallbackUrl = `/${encodedOrg}/${encodedProject}/_apis/wit/workitems?$filter=System.Tags Contains 'Veracode'&$expand=all&api-version=7.0`;
+            const fallbackResponse = await adoClient.get(fallbackUrl);
+            const workItems = fallbackResponse.data.value || [];
+            
+            if (workItems.length === 0) {
+                console.log('No existing work items with Veracode tags found (fallback method)');
+                return [];
+            }
+            
+            console.log(`Found ${workItems.length} existing work items with Veracode tags using fallback method`);
+            return workItems;
+        } catch (fallbackError) {
+            console.log('Fallback method also failed:', fallbackError.message);
+            throw lastError;
+        }
     } catch (error) {
         console.error('Error fetching existing work items:', error.message);
         if (debug === 'true' && error.response) {
             console.error('Response status:', error.response.status);
             console.error('Response data:', error.response.data);
+            console.error('Response headers:', error.response.headers);
         }
         return [];
     }
@@ -368,7 +411,7 @@ function validateNoDuplicates(existingWorkItems, veracodeFlawId, debug) {
 async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
     
-    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.2-preview.3`;
+    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
     const payload = [
         {
             op: 'replace',
@@ -423,7 +466,7 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
     });
 
     // Now create the work item
-    const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.2-preview.3`;
+    const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.0`;
     const tags = cweTag ? `Veracode;Security;${cweTag}` : 'Veracode;Security';
     const payload = [
         {
@@ -572,7 +615,7 @@ function mapSeverity(veracodeSeverity) {
 }
 
 async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_hash, debug) {
-    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.2-preview.3`;
+    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
     const payload = [
         {
             op: 'replace',
