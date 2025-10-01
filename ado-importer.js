@@ -238,11 +238,27 @@ async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProjec
 
                 console.log(`Found ${workItemIds.length} existing work items with Veracode tags using API version ${apiVersion}`);
 
-                // Get full details for each work item
-                const detailsUrl = `/${encodedOrg}/${encodedProject}/_apis/wit/workitems?ids=${workItemIds.join(',')}&$expand=all&api-version=${apiVersion}`;
-                const detailsResponse = await adoClient.get(detailsUrl);
+                // Get full details for each work item with pagination (max 200 per request)
+                const workItems = [];
+                const batchSize = 200;
                 
-                const workItems = detailsResponse.data.value || [];
+                for (let i = 0; i < workItemIds.length; i += batchSize) {
+                    const batch = workItemIds.slice(i, i + batchSize);
+                    const detailsUrl = `/${encodedOrg}/${encodedProject}/_apis/wit/workitems?ids=${batch.join(',')}&$expand=all&api-version=${apiVersion}`;
+                    
+                    if (debug === 'true') {
+                        console.log(`Fetching work item details batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(workItemIds.length/batchSize)} (${batch.length} items)`);
+                    }
+                    
+                    const detailsResponse = await adoClient.get(detailsUrl);
+                    const batchWorkItems = detailsResponse.data.value || [];
+                    workItems.push(...batchWorkItems);
+                    
+                    // Small delay between batches to avoid rate limiting
+                    if (i + batchSize < workItemIds.length) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                }
                 
                 // Check for potential duplicates in the results
                 const duplicateCheck = checkForDuplicateWorkItems(workItems, debug);
@@ -270,6 +286,7 @@ async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProjec
         // If all API versions failed, try a fallback approach using direct work items API
         console.log('WIQL query failed, trying fallback approach...');
         try {
+            // Note: The $filter approach may not work as expected, but let's try it
             const fallbackUrl = `/${encodedOrg}/${encodedProject}/_apis/wit/workitems?$filter=System.Tags Contains 'Veracode'&$expand=all&api-version=7.0`;
             const fallbackResponse = await adoClient.get(fallbackUrl);
             const workItems = fallbackResponse.data.value || [];
@@ -283,7 +300,10 @@ async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProjec
             return workItems;
         } catch (fallbackError) {
             console.log('Fallback method also failed:', fallbackError.message);
-            throw lastError;
+            // If fallback also fails, return empty array instead of throwing error
+            // This allows the import to continue even if we can't get existing work items
+            console.log('Continuing without existing work item data - deduplication will be limited');
+            return [];
         }
     } catch (error) {
         console.error('Error fetching existing work items:', error.message);
