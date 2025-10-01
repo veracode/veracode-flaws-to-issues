@@ -79,6 +79,27 @@ async function importFlawsToADO(params) {
 
     // Track which flaws we've processed to identify work items that should be closed
     const processedFlawIds = new Set();
+    
+    // Initialize scan-type specific duplicate detection structures
+    let duplicateDetectionData = {};
+    if (scanType === 'pipeline') {
+        // For pipeline scans: use file-based fuzzy matching
+        duplicateDetectionData = {
+            flawFiles: new Map(), // file -> [{cwe, line, workItemId, workItemState}]
+            existingFlawNumbers: {}, // veracodeFlawId -> workItemId
+            existingIssueStates: {} // veracodeFlawId -> workItemState
+        };
+    } else {
+        // For policy scans: use exact flaw ID matching
+        duplicateDetectionData = {
+            existingFlaws: {}, // flawNumber -> true
+            existingFlawNumbers: {}, // flawNumber -> workItemId
+            existingIssueStates: {} // flawNumber -> workItemState
+        };
+    }
+    
+    // Populate duplicate detection data from existing work items
+    populateDuplicateDetectionData(existingWorkItems, duplicateDetectionData, scanType);
 
     // Process the flaws using ADO-specific functions
     let createdCount = 0;
@@ -95,7 +116,8 @@ async function importFlawsToADO(params) {
             fail_build,
             debug,
             existingWorkItems,
-            processedFlawIds
+            processedFlawIds,
+            duplicateDetectionData
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
@@ -110,7 +132,8 @@ async function importFlawsToADO(params) {
             fail_build,
             debug,
             existingWorkItems,
-            processedFlawIds
+            processedFlawIds,
+            duplicateDetectionData
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
@@ -582,9 +605,130 @@ function isWorkItemMatchingFlaw(workItem, flawId) {
     return false;
 }
 
+// Helper function to populate duplicate detection data from existing work items
+function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionData, scanType) {
+    existingWorkItems.forEach(workItem => {
+        const title = workItem.fields['System.Title'] || '';
+        const workItemId = workItem.id;
+        const workItemState = workItem.fields['System.State'] || 'Unknown';
+        
+        // Extract Veracode Flaw ID from title
+        const veracodeFlawId = getVeracodeFlawIDFromTitle(title);
+        if (!veracodeFlawId) return;
+        
+        if (scanType === 'pipeline') {
+            // Parse pipeline flaw ID: [VID:CWE:filename:linenum]
+            const flawInfo = parseVeracodeFlawID(veracodeFlawId);
+            if (flawInfo && flawInfo.file) {
+                const flawData = {
+                    cwe: flawInfo.cwe,
+                    line: flawInfo.line,
+                    workItemId: workItemId,
+                    workItemState: workItemState
+                };
+                
+                if (duplicateDetectionData.flawFiles.has(flawInfo.file)) {
+                    duplicateDetectionData.flawFiles.get(flawInfo.file).push(flawData);
+                } else {
+                    duplicateDetectionData.flawFiles.set(flawInfo.file, [flawData]);
+                }
+                
+                duplicateDetectionData.existingFlawNumbers[veracodeFlawId] = workItemId;
+                duplicateDetectionData.existingIssueStates[veracodeFlawId] = workItemState;
+            }
+        } else {
+            // Parse policy flaw ID: [VID:FlawID]
+            const flawInfo = parseVeracodeFlawID(veracodeFlawId);
+            if (flawInfo && flawInfo.flawNum) {
+                const flawNum = parseInt(flawInfo.flawNum);
+                duplicateDetectionData.existingFlaws[flawNum] = true;
+                duplicateDetectionData.existingFlawNumbers[flawNum] = workItemId;
+                duplicateDetectionData.existingIssueStates[flawNum] = workItemState;
+            }
+        }
+    });
+}
+
+// Helper function to extract Veracode Flaw ID from work item title
+function getVeracodeFlawIDFromTitle(title) {
+    const start = title.indexOf('[VID');
+    if (start === -1) return null;
+    const end = title.indexOf(']', start);
+    if (end === -1) return null;
+    return title.substring(start, end + 1);
+}
+
+// Helper function to parse Veracode Flaw ID
+function parseVeracodeFlawID(vid) {
+    if (!vid) return null;
+    const parts = vid.replace(/^\[VID:/, '').replace(/\]$/, '').split(':');
+    
+    if (parts.length === 1) {
+        // Policy scan: [VID:FlawID]
+        return {
+            prefix: '[VID',
+            flawNum: parts[0]
+        };
+    } else if (parts.length === 3) {
+        // Pipeline scan: [VID:CWE:filename:linenum]
+        return {
+            prefix: '[VID',
+            cwe: parts[0],
+            file: parts[1],
+            line: parts[2]
+        };
+    }
+    return null;
+}
+
+// Pipeline-specific duplicate detection (fuzzy matching)
+function pipelineIssueExists(flaw, duplicateDetectionData) {
+    const cweId = flaw.cwe_id || 'Unknown';
+    const fileName = flaw.files?.source_file?.file || 'Unknown';
+    const lineNumber = flaw.files?.source_file?.line || 'Unknown';
+    
+    if (!duplicateDetectionData.flawFiles.has(fileName)) {
+        return null;
+    }
+    
+    const existingFlaws = duplicateDetectionData.flawFiles.get(fileName);
+    const newFlawLine = parseInt(lineNumber);
+    
+    for (const existingFlaw of existingFlaws) {
+        // Check CWE match
+        if (existingFlaw.cwe === cweId) {
+            // Check line range (±10 lines)
+            const existingFlawLine = parseInt(existingFlaw.line);
+            if (newFlawLine >= (existingFlawLine - 10) && newFlawLine <= (existingFlawLine + 10)) {
+                return {
+                    workItemId: existingFlaw.workItemId,
+                    workItemState: existingFlaw.workItemState
+                };
+            }
+        }
+    }
+    
+    return null;
+}
+
+// Policy-specific duplicate detection (exact matching)
+function policyIssueExists(flaw, duplicateDetectionData) {
+    const flawId = flaw.issue_id || 'Unknown';
+    const flawNum = parseInt(flawId);
+    
+    if (duplicateDetectionData.existingFlaws[flawNum] === true) {
+        return {
+            workItemId: duplicateDetectionData.existingFlawNumbers[flawNum],
+            workItemState: duplicateDetectionData.existingIssueStates[flawNum]
+        };
+    }
+    
+    return null;
+}
+
 // ADO-specific pipeline flaws processing
 async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData } = params;
     
     let createdCount = 0;
     let reopenedCount = 0;
@@ -609,16 +753,17 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
                 console.log(`Processing pipeline flaw ${flawId} with Veracode ID: ${veracodeFlawId}`);
             }
             
-            // Check if work item already exists
-            const existingWorkItem = validateNoDuplicates(existingWorkItems, veracodeFlawId, debug);
+            // Check if work item already exists using pipeline-specific fuzzy matching
+            const existingWorkItem = pipelineIssueExists(flaw, duplicateDetectionData);
             
             if (existingWorkItem) {
-                const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
-                console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
+                const workItemState = existingWorkItem.workItemState;
+                const workItemId = existingWorkItem.workItemId;
+                console.log(`Work item already exists for pipeline flaw ${flawId} (ID: ${workItemId}, State: ${workItemState})`);
                 
                 if (workItemState === 'Closed' || workItemState === 'Resolved') {
-                    console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
-                    await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
+                    console.log(`Reopening closed work item ${workItemId} for flaw ${flawId}`);
+                    await reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, {
                         source_base_path_1,
                         source_base_path_2,
                         source_base_path_3,
@@ -627,7 +772,7 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
                     });
                     reopenedCount++;
                 } else {
-                    console.log(`Work item ${existingWorkItem.id} is already open (State: ${workItemState}), skipping creation`);
+                    console.log(`Work item ${workItemId} is already open (State: ${workItemState}), skipping creation`);
                     skippedCount++;
                 }
             } else {
@@ -669,7 +814,7 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
 
 // ADO-specific policy flaws processing
 async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData } = params;
     
     let createdCount = 0;
     let reopenedCount = 0;
@@ -694,16 +839,17 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
                 console.log(`Processing policy flaw ${flawId} with Veracode ID: ${veracodeFlawId}`);
             }
             
-            // Check if work item already exists
-            const existingWorkItem = validateNoDuplicates(existingWorkItems, veracodeFlawId, debug);
+            // Check if work item already exists using policy-specific exact matching
+            const existingWorkItem = policyIssueExists(flaw, duplicateDetectionData);
             
             if (existingWorkItem) {
-                const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
-                console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
+                const workItemState = existingWorkItem.workItemState;
+                const workItemId = existingWorkItem.workItemId;
+                console.log(`Work item already exists for policy flaw ${flawId} (ID: ${workItemId}, State: ${workItemState})`);
                 
                 if (workItemState === 'Closed' || workItemState === 'Resolved') {
-                    console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
-                    await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
+                    console.log(`Reopening closed work item ${workItemId} for flaw ${flawId}`);
+                    await reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, {
                         source_base_path_1,
                         source_base_path_2,
                         source_base_path_3,
@@ -712,7 +858,7 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
                     });
                     reopenedCount++;
                 } else {
-                    console.log(`Work item ${existingWorkItem.id} is already open (State: ${workItemState}), skipping creation`);
+                    console.log(`Work item ${workItemId} is already open (State: ${workItemState}), skipping creation`);
                     skippedCount++;
                 }
             } else {
