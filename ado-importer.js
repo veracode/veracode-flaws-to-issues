@@ -468,11 +468,23 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
     // Now create the work item
     const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.0`;
     const tags = cweTag ? `Veracode;Security;${cweTag}` : 'Veracode;Security';
+    
+    // Create title in the same format as GitHub action
+    let title;
+    if (scanType === 'pipeline') {
+        // Pipeline: issue_type + VeracodeFlawID
+        title = `${cweName} ` + createVeracodeFlawId(flaw, scanType);
+    } else {
+        // Policy: cwe_name + category + VeracodeFlawID
+        const category = flaw.finding_details?.finding_category?.name || 'Unknown';
+        title = `${cweName} ('${category}') ` + createVeracodeFlawId(flaw, scanType);
+    }
+    
     const payload = [
         {
             op: 'add',
             path: '/fields/System.Title',
-            value: `Veracode Flaw (Static): ${cweName}, Flaw ${flawId}`
+            value: title
         },
         {
             op: 'add',
