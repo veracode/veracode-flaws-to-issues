@@ -33,7 +33,7 @@ async function importFlawsToADO(params) {
     const adoClient = axios.create({
         baseURL: baseUrl,
         headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/json-patch+json',
             'Authorization': `Bearer ${adoPat}`
         }
     });
