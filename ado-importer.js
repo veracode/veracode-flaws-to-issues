@@ -30,7 +30,24 @@ async function importFlawsToADO(params) {
         console.log(`Work Item Type: ${adoWorkItemType}`);
     }
 
+    // Create base ADO client with common headers
     const adoClient = axios.create({
+        baseURL: baseUrl,
+        headers: {
+            'Authorization': `Bearer ${adoPat}`
+        }
+    });
+    
+    // Create specialized clients for different operations
+    const adoQueryClient = axios.create({
+        baseURL: baseUrl,
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adoPat}`
+        }
+    });
+    
+    const adoPatchClient = axios.create({
         baseURL: baseUrl,
         headers: {
             'Content-Type': 'application/json-patch+json',
@@ -67,7 +84,7 @@ async function importFlawsToADO(params) {
     console.log(`Importing ${scanType} flaws into Azure DevOps. ${waitTime} seconds between imports (to handle rate limiting)`);
 
     // Get existing work items to check for duplicates
-    const existingWorkItems = await getExistingWorkItems(adoClient, adoOrg, adoProject, debug);
+    const existingWorkItems = await getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProject, debug);
     console.log(`Found ${existingWorkItems.length} existing work items to check against`);
 
     // Track which work items are still active (not closed)
@@ -107,7 +124,7 @@ async function importFlawsToADO(params) {
     let skippedCount = 0;
 
     if (scanType === 'pipeline') {
-        const result = await processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
+        const result = await processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, {
             source_base_path_1,
             source_base_path_2,
             source_base_path_3,
@@ -123,7 +140,7 @@ async function importFlawsToADO(params) {
         reopenedCount = result.reopenedCount;
         skippedCount = result.skippedCount;
     } else {
-        const result = await processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
+        const result = await processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, {
             source_base_path_1,
             source_base_path_2,
             source_base_path_3,
@@ -156,7 +173,7 @@ async function importFlawsToADO(params) {
             
             if (!isStillPresent) {
                 console.log(`Closing work item ${workItemId} - flaw no longer found in scan: "${title}"`);
-                await closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_hash, debug);
+                await closeWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, commit_hash, debug);
                 closedCount++;
                 
                 // Wait between API calls to avoid rate limiting
@@ -188,7 +205,7 @@ async function importFlawsToADO(params) {
     }
 }
 
-async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
+async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProject, debug) {
     try {
         // Query for existing work items with Veracode tags
         const url = `/${adoOrg}/${adoProject}/_apis/wit/wiql?api-version=7.2-preview.3`;
@@ -200,7 +217,7 @@ async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
             console.log('Querying existing work items with query:', JSON.stringify(query, null, 2));
         }
 
-        const response = await adoClient.post(url, query);
+        const response = await adoQueryClient.post(url, query);
         const workItemIds = response.data.workItems.map(wi => wi.id);
 
         if (workItemIds.length === 0) {
@@ -727,7 +744,7 @@ function policyIssueExists(flaw, duplicateDetectionData) {
 }
 
 // ADO-specific pipeline flaws processing
-async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
+async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData } = params;
     
     let createdCount = 0;
@@ -763,7 +780,7 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
                 
                 if (workItemState === 'Closed' || workItemState === 'Resolved') {
                     console.log(`Reopening closed work item ${workItemId} for flaw ${flawId}`);
-                    await reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, {
+                    await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
                         source_base_path_1,
                         source_base_path_2,
                         source_base_path_3,
@@ -778,7 +795,7 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
             } else {
                 // Create new work item
                 console.log(`Creating new work item for pipeline flaw ${flawId} (Veracode ID: ${veracodeFlawId})`);
-                const workItem = await createWorkItem(adoClient, adoOrg, adoProject, adoWorkItemType, flaw, {
+                const workItem = await createWorkItem(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flaw, {
                     source_base_path_1,
                     source_base_path_2,
                     source_base_path_3,
@@ -813,7 +830,7 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
 }
 
 // ADO-specific policy flaws processing
-async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
+async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData } = params;
     
     let createdCount = 0;
@@ -849,7 +866,7 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
                 
                 if (workItemState === 'Closed' || workItemState === 'Resolved') {
                     console.log(`Reopening closed work item ${workItemId} for flaw ${flawId}`);
-                    await reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, {
+                    await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
                         source_base_path_1,
                         source_base_path_2,
                         source_base_path_3,
@@ -864,7 +881,7 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
             } else {
                 // Create new work item
                 console.log(`Creating new work item for policy flaw ${flawId} (Veracode ID: ${veracodeFlawId})`);
-                const workItem = await createWorkItem(adoClient, adoOrg, adoProject, adoWorkItemType, flaw, {
+                const workItem = await createWorkItem(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flaw, {
                     source_base_path_1,
                     source_base_path_2,
                     source_base_path_3,
