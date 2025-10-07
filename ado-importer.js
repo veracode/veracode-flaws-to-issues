@@ -356,6 +356,98 @@ function validateNoDuplicates(existingWorkItems, veracodeFlawId, debug) {
     return matches[0] || null;
 }
 
+function formatMitigation(annotation){
+    let mitigation = ''
+
+    const created = annotation.created || 'Unknown';
+    const comment = annotation.comment || 'Unknown';
+    const action = annotation.action || 'Unknown';
+    const user_name = annotation.user_name || 'Unknown';
+
+    const technique = annotation.technique || 'Unknown';
+    const specifics = annotation.specifics || 'Unknown';
+    const remaining_risk = annotation.remaining_risk || 'Unknown';
+    const verification = annotation.verification || 'Unknown';
+    
+    const mitigation_title = "Identifier: " + created + ":" + user_name + ":" + action;
+    mitigation += mitigation_title + "<br>";
+    mitigation += "<b>User:</b> " + user_name + "<br>";;
+    mitigation += "<b>Created:</b> " + created + "<br>";;
+    mitigation += "<b>Action:</b> " + action + "<br>";;
+
+    if(action !== 'COMMENT' && action !== 'FP'){
+        mitigation += "<b>Technique:</b> " + technique + "<br/>";
+        mitigation += "<b>Specifics:</b> " + specifics + "<br>";
+        mitigation += "<b>Remaining Risk:</b> " + remaining_risk + "<br>";
+        mitigation += "<b>Verification:</b> " + verification + "<br>";
+    } else {
+        mitigation += "<b>Comment:</b>" + comment;
+    }
+
+    return { mitigation_title, mitigation }
+}
+
+async function checkExistingComments(adoClient, url, workItemId){
+    try {
+        const response = await adoClient.get(url, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        return response.data.comments
+    } catch (error) {
+        console.error(`Failed to get comment for work item ${workItemId}:`, error.message);
+        throw error;
+    }
+}
+
+async function updateWorkItem(adoClient, adoOrg, adoProject, workItemId, annotations, params) {
+    const { commit_hash, debug } = params;
+    const url = `/${adoOrg}/${adoProject}/_apis/wit/workItems/${workItemId}/comments?api-version=7.0-preview.3`;
+    
+    const sorted_annotations = annotations.sort(function(a, b){
+        const dateA = new Date(a.created);
+        const dateB = new Date(b.created);
+        return dateA - dateB;
+    })
+
+    for(const annot of sorted_annotations){
+        const { mitigation_title, mitigation } = formatMitigation(annot)
+        const comments = await checkExistingComments(adoClient, url, workItemId)
+
+        let duplicate_comment = comments.find(({text}) => text.startsWith(mitigation_title))
+        
+        if(duplicate_comment === undefined){
+            const payload = { text: mitigation }
+            
+            addComment(adoClient, url, workItemId, payload, debug)
+        } else {
+            if(debug === 'true'){
+                console.log(`Skipping duplicate comment found for work item ${workItemId} with ${mitigation_title}`);
+            }
+        }
+    }
+}
+
+async function addComment(adoClient, url, workItemId, payload, debug){
+    try {
+        const response = await adoClient.post(url, payload, {
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+        console.log('Work item comment added successfully');
+        if (debug === 'true'){
+            console.log('Adding Mitigation Comments to work item with payload:', JSON.stringify(payload, null, 2));
+        }
+        return response;
+    } catch (error) {
+        console.error(`Failed to add comment to work item ${workItemId}:`, error.message);
+        throw error;
+    }
+}
+
 async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
     
@@ -726,6 +818,7 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
             const flawId = flaw.issue_id || 'Unknown';
             const cweId = flaw.finding_details?.cwe?.id || 'Unknown';
             const cweName = flaw.finding_details?.cwe?.name || 'Unknown';
+            const annotations = flaw.annotations || [];
             
             // Create a unique identifier for the flaw
             const veracodeFlawId = createVeracodeFlawId(flaw, 'policy');
@@ -747,16 +840,22 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
                 if (workItemState === 'Closed' || workItemState === 'Resolved') {
                     console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
                     await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
-                        source_base_path_1,
-                        source_base_path_2,
-                        source_base_path_3,
                         commit_hash,
                         debug
                     });
                     reopenedCount++;
                 } else {
                     console.log(`Work item ${existingWorkItem.id} is already open (State: ${workItemState}), skipping creation`);
+                    
+                    //add mitigation comments
+                    if(annotations.length > 0){
+                        await updateWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, annotations, {
+                                                commit_hash,
+                                                debug
+                                            });
+                    }
                     skippedCount++;
+
                 }
             } else {
                 // Create new work item
