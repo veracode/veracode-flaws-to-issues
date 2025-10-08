@@ -129,7 +129,7 @@ function getIssueState(vid) {
 
 
 
-async function processPolicyFlaws(options, flawData) {
+async function processPolicyFlaws(options, flawData, autoCloseFindings) {
 
     const util = require('./util');
 
@@ -370,6 +370,79 @@ old rewrite path */
         // rate limiter, per GitHub: https://docs.github.com/en/rest/guides/best-practices-for-integrators
         if(waitTime > 0)
             await util.sleep(waitTime * 1000);
+    }
+
+    // Close issues that are no longer present in the scan results
+    if (autoCloseFindings) {
+        console.log(`\nChecking for GitHub issues to close (flaws not found in current scan)...`);
+        let closedCount = 0;
+        
+        // Get all existing open issues with Veracode tags
+        const { request } = require('@octokit/request');
+        const authToken = 'token ' + options.githubToken;
+        
+        for(const element of label.flawLabels) {
+            let done = false;
+            let pageNum = 1;
+            
+            while(!done) {
+                const uriSeverity = encodeURIComponent(element.name);
+                const uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'policy').name);
+                const reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}`;
+                
+                try {
+                    const result = await request(reqStr, {
+                        headers: { authorization: authToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        page: pageNum
+                    });
+                    
+                    for (const issue of result.data) {
+                        const title = issue.title || '';
+                        const issueNumber = issue.number;
+                        
+                        // Check if this issue corresponds to a flaw that's still present
+                        const isStillPresent = flawData._embedded.findings.some(flaw => {
+                            const vid = createVeracodeFlawID(flaw);
+                            return title.includes(vid);
+                        });
+                        
+                        if (!isStillPresent) {
+                            console.log(`Closing GitHub issue ${issueNumber} - flaw no longer found in scan: "${title}"`);
+                            
+                            // Close the issue
+                            await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                                headers: { authorization: authToken },
+                                owner: options.githubOwner,
+                                repo: options.githubRepo,
+                                issue_number: issueNumber,
+                                state: 'closed',
+                                state_reason: 'not_planned'
+                            });
+                            
+                            closedCount++;
+                            
+                            // Rate limiting
+                            if(waitTime > 0)
+                                await util.sleep(waitTime * 1000);
+                        }
+                    }
+                    
+                    // Check if we need to loop
+                    if( (result.headers.link !== undefined) && (result.data.length > 0)) {
+                        pageNum += 1;
+                    } else {
+                        done = true;
+                    }
+                } catch (error) {
+                    console.error(`Error processing issues for label ${element.name}:`, error.message);
+                    done = true;
+                }
+            }
+        }
+        
+        console.log(`Closed ${closedCount} GitHub issues that were no longer present in scan results`);
     }
 
     return index;

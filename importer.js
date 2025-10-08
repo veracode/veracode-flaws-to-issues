@@ -25,6 +25,7 @@ async function importFlaws(options) {
     const fail_build = options.fail_build;
     const isPR = options.isPR
     const debug = options.debug
+    const autoCloseFindings = options.autoCloseFindings === 'true' || options.autoCloseFindings === true
     var internal_flaw_count = 0
     var flawData;
 
@@ -83,7 +84,7 @@ async function importFlaws(options) {
     
     // process the flaws
     if(scanType == 'pipeline') {
-        await processPipelineFlaws(options, flawData)
+        await processPipelineFlaws(options, flawData, autoCloseFindings)
         .then (count => {
             internal_flaw_count = count
             console.log(`Done.  ${count} flaws processed.`);
@@ -95,7 +96,7 @@ async function importFlaws(options) {
             console.log("isPr?: "+isPR)
             core.info('#### DEBUG END ####')
         }
-        await processPolicyFlaws(options, flawData)
+        await processPolicyFlaws(options, flawData, autoCloseFindings)
         .then (count => {
             console.log(`Done.  ${count} flaws processed.`);
             internal_flaw_count = count

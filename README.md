@@ -16,9 +16,21 @@ This action will **open, reopen, and close** issues/work items based on the curr
 
 - **New findings**: Creates new work items
 - **Existing findings**: Reopens closed work items or skips if already open
-- **Resolved findings**: Closes work items that are no longer present in the scan results
+- **Resolved findings**: Closes work items that are no longer present in the scan results (when `autoCloseFindings` is enabled)
 
 This ensures that security findings remain tracked and visible until properly addressed, and that resolved issues are automatically closed when they no longer appear in scans.
+
+### Auto-Close Behavior
+
+By default, the action will **not** automatically close issues/work items that are no longer present in scan results. To enable this behavior, set the `autoCloseFindings` parameter to `true`.
+
+**When `autoCloseFindings: true`:**
+- Issues/work items that are no longer present in the current scan results will be automatically closed
+- This helps keep your issue tracker clean by removing resolved security findings
+
+**When `autoCloseFindings: false` or not set (default):**
+- No issues/work items will be closed automatically
+- Only new issues/work items will be created and existing ones will be reopened if needed
 
 ## Importing Pipeline Scan flaws
 For a Pipeline Scan, this is typically done with the filtered results of the Pipeline Scan, see [Pipeline Scan commands](https://help.veracode.com/r/r_pipeline_scan_commands).  
@@ -75,6 +87,14 @@ source-base-path-2: "^WEB-INF:src/main/webapp/WEB-INF"
 **Optional** If a previous task run and was set to `fail_build: false` as you need to run this `flaws-to-issues` action after the scan is finished but you still need to fail the pipeline based on findings from a Veracode scan, this option is require to be set to `true`.
 | Default value | `""` |
 --- | ---   
+
+### `autoCloseFindings`
+
+**Optional** Controls whether issues/work items that are no longer present in scan results should be automatically closed. When set to `true`, the action will close issues/work items that were previously created but are no longer found in the current scan results. This helps keep your issue tracker clean by removing resolved security findings.
+
+**Valid values:** `"true"` or `"false"` (as strings) or `true` or `false` (as booleans)
+| Default value | `"false"` |
+|--- | ---
 
 ### GitHub-specific inputs (when `dts_type` is `GITHUB` or not specified)
 
@@ -237,6 +257,7 @@ The PAT should be scoped to the specific project where work items will be create
         with:
           dts_type: 'GITHUB'  # Optional, this is the default
           scan-results-json: 'filtered_results.json'
+          autoCloseFindings: 'true'  # Optional, closes issues no longer present in scan
 ```
 
 #### Policy/Sandbox scan
@@ -290,6 +311,7 @@ The PAT should be scoped to the specific project where work items will be create
         with:
           dts_type: 'GITHUB'  # Optional, this is the default
           scan-results-json: '/tmp/policy_flaws.json'
+          autoCloseFindings: 'true'  # Optional, closes issues no longer present in scan
 ```
 
 ### Azure DevOps Work Items
@@ -339,6 +361,7 @@ The PAT should be scoped to the specific project where work items will be create
           ADO_ORG: 'your-organization'
           ADO_PROJECT: 'your-project'
           ADO_WORK_ITEM_TYPE: 'Bug'  # Optional, defaults to 'Issue'
+          autoCloseFindings: 'true'  # Optional, closes work items no longer present in scan
 ```
 
 #### Policy/Sandbox scan with ADO
@@ -388,3 +411,4 @@ The PAT should be scoped to the specific project where work items will be create
           ADO_ORG: 'your-organization'
           ADO_PROJECT: 'your-project'
           ADO_WORK_ITEM_TYPE: 'Bug'
+          autoCloseFindings: 'true'  # Optional, closes work items no longer present in scan

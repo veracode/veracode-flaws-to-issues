@@ -15,7 +15,8 @@ async function importFlawsToADO(params) {
         source_base_path_3,
         commit_hash,
         fail_build,
-        debug
+        debug,
+        autoCloseFindings
     } = params;
 
     // Read and parse the results file
@@ -159,9 +160,10 @@ async function importFlawsToADO(params) {
 
     // Close work items that are no longer present in the scan results
     let closedCount = 0;
-    console.log(`\nChecking for work items to close (flaws not found in current scan)...`);
-    
-    for (const workItem of activeWorkItems) {
+    if (autoCloseFindings) {
+        console.log(`\nChecking for work items to close (flaws not found in current scan)...`);
+        
+        for (const workItem of activeWorkItems) {
         try {
             const title = workItem.fields['System.Title'] || '';
             const workItemId = workItem.id;
@@ -188,6 +190,7 @@ async function importFlawsToADO(params) {
             if (fail_build === 'true') {
                 throw error;
             }
+        }
         }
     }
 
