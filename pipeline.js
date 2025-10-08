@@ -398,21 +398,35 @@ old rewrite path */
             let done = false;
             let pageNum = 1;
             let issuesForThisSeverity = 0;
+            let nextUrl = null;
             
             console.log(`\nChecking ${element.name} issues...`);
             
             while(!done) {
-                const uriSeverity = encodeURIComponent(element.name);
-                const uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'pipeline').name);
-                const reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}&per_page=100`;
+                let reqStr;
+                let requestParams;
                 
-                try {
-                    const result = await request(reqStr, {
+                if (nextUrl) {
+                    // Use the next URL from the Link header for cursor-based pagination
+                    reqStr = nextUrl;
+                    requestParams = {
+                        headers: { authorization: authToken }
+                    };
+                } else {
+                    // First request - use page-based pagination
+                    const uriSeverity = encodeURIComponent(element.name);
+                    const uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'pipeline').name);
+                    reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}&per_page=100`;
+                    requestParams = {
                         headers: { authorization: authToken },
                         owner: options.githubOwner,
                         repo: options.githubRepo,
                         page: pageNum
-                    });
+                    };
+                }
+                
+                try {
+                    const result = await request(reqStr, requestParams);
                     
                     console.log(`  Page ${pageNum}: Found ${result.data.length} issues`);
                     console.log(`  Headers: link=${result.headers.link}, x-ratelimit-remaining=${result.headers['x-ratelimit-remaining']}`);
@@ -458,7 +472,14 @@ old rewrite path */
                     const hasNextPage = linkHeader && linkHeader.includes('rel="next"');
                     
                     if (hasNextPage && result.data.length > 0) {
-                        pageNum += 1;
+                        // Extract the next URL from the Link header
+                        const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+                        if (nextMatch) {
+                            nextUrl = nextMatch[1];
+                            pageNum += 1;
+                        } else {
+                            done = true;
+                        }
                     } else {
                         done = true;
                     }
