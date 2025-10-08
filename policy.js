@@ -397,7 +397,7 @@ old rewrite path */
             while(!done) {
                 const uriSeverity = encodeURIComponent(element.name);
                 const uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'policy').name);
-                const reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}`;
+                const reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}&per_page=100`;
                 
                 try {
                     const result = await request(reqStr, {
@@ -408,6 +408,7 @@ old rewrite path */
                     });
                     
                     console.log(`  Page ${pageNum}: Found ${result.data.length} issues`);
+                    console.log(`  Headers: link=${result.headers.link}, x-ratelimit-remaining=${result.headers['x-ratelimit-remaining']}`);
                     issuesForThisSeverity += result.data.length;
                     
                     for (const issue of result.data) {
@@ -444,8 +445,8 @@ old rewrite path */
                         }
                     }
                     
-                    // Check if we need to loop
-                    if( (result.headers.link !== undefined) && (result.data.length > 0)) {
+                    // Check if we need to loop - continue if there are more pages available
+                    if( result.headers.link !== undefined && result.data.length > 0) {
                         pageNum += 1;
                     } else {
                         done = true;

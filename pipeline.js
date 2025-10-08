@@ -404,7 +404,7 @@ old rewrite path */
             while(!done) {
                 const uriSeverity = encodeURIComponent(element.name);
                 const uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'pipeline').name);
-                const reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}`;
+                const reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}&per_page=100`;
                 
                 try {
                     const result = await request(reqStr, {
@@ -415,6 +415,7 @@ old rewrite path */
                     });
                     
                     console.log(`  Page ${pageNum}: Found ${result.data.length} issues`);
+                    console.log(`  Headers: link=${result.headers.link}, x-ratelimit-remaining=${result.headers['x-ratelimit-remaining']}`);
                     issuesForThisSeverity += result.data.length;
                     
                     for (const issue of result.data) {
