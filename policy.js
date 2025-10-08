@@ -183,8 +183,11 @@ async function processPolicyFlaws(options, flawData, autoCloseFindings) {
                     }
                 })
             }
-            else{
+            else if (issueState == "closed"){
                 console.log('GitHub issue is closed no need to update.')
+            }
+            else {
+                console.log('GitHub issue is open but not on a PR, no need to update.')
             }
 
 
