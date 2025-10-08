@@ -83,6 +83,7 @@ async function importFlawsToADO(params) {
     let createdCount = 0;
     let reopenedCount = 0;
     let skippedCount = 0;
+    let closedCount = 0;
 
     if (scanType === 'pipeline') {
         const result = await processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
@@ -99,6 +100,7 @@ async function importFlawsToADO(params) {
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
         skippedCount = result.skippedCount;
+        closedCount = closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems, result.processedFlawIds, commit_hash, debug)
     } else {
         const result = await processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
             source_base_path_1,
@@ -114,40 +116,7 @@ async function importFlawsToADO(params) {
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
         skippedCount = result.skippedCount;
-    }
-
-    // Close work items that are no longer present in the scan results
-    let closedCount = 0;
-    console.log(`\nChecking for work items to close (flaws not found in current scan)...`);
-    
-    for (const workItem of activeWorkItems) {
-        try {
-            const title = workItem.fields['System.Title'] || '';
-            const workItemId = workItem.id;
-            
-            // Check if this work item corresponds to a flaw that's still present
-            const isStillPresent = Array.from(processedFlawIds).some(flawId => {
-                return title.includes(flawId) || isWorkItemMatchingFlaw(workItem, flawId);
-            });
-            
-            if (!isStillPresent) {
-                console.log(`Closing work item ${workItemId} - flaw no longer found in scan: "${title}"`);
-                await closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_hash, debug);
-                closedCount++;
-                
-                // Wait between API calls to avoid rate limiting
-                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
-            } else {
-                if (debug === 'true') {
-                    console.log(`Keeping work item ${workItemId} open - flaw still present: "${title}"`);
-                }
-            }
-        } catch (error) {
-            console.error(`Failed to close work item ${workItem.id}: ${error.message}`);
-            if (fail_build === 'true') {
-                throw error;
-            }
-        }
+        closedCount = result.closedCount;
     }
 
     // Summary of work item operations
@@ -357,6 +326,7 @@ function validateNoDuplicates(existingWorkItems, veracodeFlawId, debug) {
 }
 
 function formatMitigation(annotation){
+    const mitigationStatus = ['COMMENT', 'FP', 'APPROVED', 'REJECTED']
     let mitigation = ''
 
     const created = annotation.created || 'Unknown';
@@ -369,13 +339,13 @@ function formatMitigation(annotation){
     const remaining_risk = annotation.remaining_risk || 'Unknown';
     const verification = annotation.verification || 'Unknown';
     
-    const mitigation_title = "Identifier: " + created + ":" + user_name + ":" + action;
+    const mitigation_title = created + ":" + user_name + ":" + action;
     mitigation += mitigation_title + "<br>";
     mitigation += "<b>User:</b> " + user_name + "<br>";;
     mitigation += "<b>Created:</b> " + created + "<br>";;
     mitigation += "<b>Action:</b> " + action + "<br>";;
 
-    if(action !== 'COMMENT' && action !== 'FP'){
+    if(!mitigationStatus.includes(action)){
         mitigation += "<b>Technique:</b> " + technique + "<br/>";
         mitigation += "<b>Specifics:</b> " + specifics + "<br>";
         mitigation += "<b>Remaining Risk:</b> " + remaining_risk + "<br>";
@@ -451,12 +421,15 @@ async function addComment(adoClient, url, workItemId, payload, debug){
 async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
     
+    // Change SyStemState to match ADO
+    const systemState = 'To Do'
+    
     const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.1`;
     const payload = [
         {
             op: 'replace',
             path: '/fields/System.State',
-            value: 'Active'
+            value: systemState
         },
         {
             op: 'add',
@@ -662,8 +635,16 @@ function mapSeverity(veracodeSeverity) {
     return severityMap[veracodeSeverity] || '3 - Medium';
 }
 
-async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_hash, debug) {
+async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, flawResolution, commit_hash, debug) {
+    const flawResolutionStatus = ['MITIGATED']
+    let closeReason = ''
+    
     const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.1`;
+    if(flawResolutionStatus.includes(flawResolution)){
+        closeReason = `Closed by Veracode scan - Flaw Resolution = ${flawResolution}`
+    } else {
+        closeReason = `Closed by Veracode scan - Flaw no longer found in scan from commit ${commit_hash || 'Unknown'} on GitHub`
+    }    
     const payload = [
         {
             op: 'replace',
@@ -673,7 +654,7 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_h
         {
             op: 'add',
             path: '/fields/System.History',
-            value: `Closed by Veracode scan - Flaw no longer found in scan from commit ${commit_hash || 'Unknown'} on GitHub`
+            value: closeReason
         }
     ];
 
@@ -695,6 +676,43 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_h
         console.error(`Failed to close work item ${workItemId}:`, error.message);
         throw error;
     }
+}
+
+async function closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems, processedFlawIds, commit_hash, debug){
+    // Close work items that are no longer present in the scan results
+    console.log(`\nChecking for work items to close (flaws not found in current scan)...`);
+    
+    for (const workItem of activeWorkItems) {
+        try {
+            const title = workItem.fields['System.Title'] || '';
+            const workItemId = workItem.id;
+            
+            // Check if this work item corresponds to a flaw that's still present
+            const isStillPresent = Array.from(processedFlawIds).some(flawId => {
+                return title.includes(flawId) || isWorkItemMatchingFlaw(workItem, flawId);
+            });
+            
+            if (!isStillPresent) {
+                console.log(`Closing work item ${workItemId} - flaw no longer found in scan: "${title}"`);
+                await closeWorkItem(adoClient, adoOrg, adoProject, workItemId, flawResolution="CLOSED BY SCAN", commit_hash, debug);
+                closedCount++;
+                
+                // Wait between API calls to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+            } else {
+                if (debug === 'true') {
+                    console.log(`Keeping work item ${workItemId} open - flaw still present: "${title}"`);
+                }
+            }
+        } catch (error) {
+            console.error(`Failed to close work item ${workItem.id}: ${error.message}`);
+            if (fail_build === 'true') {
+                throw error;
+            }
+        }
+    }
+
+    return closedCount
 }
 
 function isWorkItemMatchingFlaw(workItem, flawId) {
@@ -819,6 +837,8 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
             const cweId = flaw.finding_details?.cwe?.id || 'Unknown';
             const cweName = flaw.finding_details?.cwe?.name || 'Unknown';
             const annotations = flaw.annotations || [];
+            const flawStatus = flaw.finding_status?.status
+            const flawResolution = flaw.finding_status?.resolution
             
             // Create a unique identifier for the flaw
             const veracodeFlawId = createVeracodeFlawId(flaw, 'policy');
@@ -835,9 +855,9 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
             
             if (existingWorkItem) {
                 const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
-                console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
+                console.log(`Work item already exists for (Flaw ID: ${flawId}, Status: ${flawStatus}) (ID: ${existingWorkItem.id}, State: ${workItemState})`);
                 
-                if (workItemState === 'Closed' || workItemState === 'Resolved') {
+                if ((workItemState === 'Done' || workItemState === 'Resolved') && flawStatus !== 'CLOSED') {
                     console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
                     await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
                         commit_hash,
@@ -853,6 +873,13 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
                                                 commit_hash,
                                                 debug
                                             });
+                    }
+
+                    //check for closure
+                    if((workItemState !== 'Done' && workItemState !== 'Resolved') && (flawStatus === 'CLOSED')){
+                        console.log(`Flaw ID: ${flawId}, Veracode Status: ${flawStatus}; (Work Item: ${existingWorkItem.id} State: ${workItemState}); Checking For Closure`);
+                        await closeWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, flawResolution, commit_hash, debug)
+                        closedCount++;
                     }
                     skippedCount++;
 
@@ -891,7 +918,7 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
         }
     }
     
-    return { createdCount, reopenedCount, skippedCount };
+    return { createdCount, reopenedCount, skippedCount, closedCount };
 }
 
 module.exports = {
