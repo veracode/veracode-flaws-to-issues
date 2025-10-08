@@ -390,6 +390,9 @@ old rewrite path */
         for(const element of label.flawLabels) {
             let done = false;
             let pageNum = 1;
+            let issuesForThisSeverity = 0;
+            
+            console.log(`\nChecking ${element.name} issues...`);
             
             while(!done) {
                 const uriSeverity = encodeURIComponent(element.name);
@@ -403,6 +406,9 @@ old rewrite path */
                         repo: options.githubRepo,
                         page: pageNum
                     });
+                    
+                    console.log(`  Page ${pageNum}: Found ${result.data.length} issues`);
+                    issuesForThisSeverity += result.data.length;
                     
                     for (const issue of result.data) {
                         const title = issue.title || '';
@@ -449,6 +455,8 @@ old rewrite path */
                     done = true;
                 }
             }
+            
+            console.log(`  Total ${element.name} issues: ${issuesForThisSeverity}`);
         }
         
         console.log(`Checked ${totalIssuesChecked} total GitHub issues`);
