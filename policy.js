@@ -446,7 +446,11 @@ old rewrite path */
                     }
                     
                     // Check if we need to loop - continue if there are more pages available
-                    if( result.headers.link !== undefined && result.data.length > 0) {
+                    // GitHub API uses Link header with rel="next" to indicate more pages
+                    const linkHeader = result.headers.link;
+                    const hasNextPage = linkHeader && linkHeader.includes('rel="next"');
+                    
+                    if (hasNextPage && result.data.length > 0) {
                         pageNum += 1;
                     } else {
                         done = true;
