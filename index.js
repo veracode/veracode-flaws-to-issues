@@ -17,12 +17,13 @@ try {
     const source_base_path_2 = core.getInput('source_base_path_2'); 
     const source_base_path_3 = core.getInput('source_base_path_3');
     const fail_build = core.getInput('fail_build');
+    const autoCloseFindings = core.getInput('autoCloseFindings');
     const debug = core.getInput('debug')
     let commit_hash = core.getInput('commitHash');
     if ( commit_hash == "" ){
         commit_hash = process.env.GITHUB_SHA;
     }
-    console.log('dts_type: '+dts_type+'\nresultsFile: '+resultsFile+'\nwaitTime: '+waitTime+'\nsource_base_path_1: '+source_base_path_1+'\nsource_base_path_2: '+source_base_path_2+'\nsource_base_path_3: '+source_base_path_3+'\ncommit_hash: '+commit_hash+'\ndebug: '+debug)
+    console.log('dts_type: '+dts_type+'\nresultsFile: '+resultsFile+'\nwaitTime: '+waitTime+'\nsource_base_path_1: '+source_base_path_1+'\nsource_base_path_2: '+source_base_path_2+'\nsource_base_path_3: '+source_base_path_3+'\ncommit_hash: '+commit_hash+'\nautoCloseFindings: '+autoCloseFindings+'\ndebug: '+debug)
 
     if (dts_type === 'ADO') {
         // Validate ADO specific required parameters
@@ -50,6 +51,7 @@ try {
             source_base_path_3: source_base_path_3,
             commit_hash: commit_hash,
             fail_build: fail_build,
+            autoCloseFindings: autoCloseFindings,
             debug: debug
         })
         .catch(error => {console.error(`Failure at ${error.stack}`)});
@@ -124,6 +126,7 @@ try {
              isPR: isPR,
              pr_commentID: pr_commentID,
              fail_build: fail_build,
+             autoCloseFindings: autoCloseFindings,
              debug: debug
             }
         )
