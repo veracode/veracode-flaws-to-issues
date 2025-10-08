@@ -386,7 +386,9 @@ old rewrite path */
     // Close issues that are no longer present in the scan results
     if (autoCloseFindings) {
         console.log(`\nChecking for GitHub issues to close (flaws not found in current scan)...`);
+        console.log(`Current scan has ${flawData.findings.length} flaws`);
         let closedCount = 0;
+        let totalIssuesChecked = 0;
         
         // Get all existing open issues with Veracode tags
         const { request } = require('@octokit/request');
@@ -412,6 +414,7 @@ old rewrite path */
                     for (const issue of result.data) {
                         const title = issue.title || '';
                         const issueNumber = issue.number;
+                        totalIssuesChecked++;
                         
                         // Check if this issue corresponds to a flaw that's still present
                         const isStillPresent = flawData.findings.some(flaw => {
@@ -437,6 +440,8 @@ old rewrite path */
                             // Rate limiting
                             if(waitTime > 0)
                                 await util.sleep(waitTime * 1000);
+                        } else {
+                            console.log(`Keeping GitHub issue ${issueNumber} open - flaw still present: "${title}"`);
                         }
                     }
                     
@@ -453,6 +458,7 @@ old rewrite path */
             }
         }
         
+        console.log(`Checked ${totalIssuesChecked} total GitHub issues`);
         console.log(`Closed ${closedCount} GitHub issues that were no longer present in scan results`);
     }
 
