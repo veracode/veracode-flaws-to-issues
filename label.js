@@ -71,8 +71,13 @@ async function createLabels(options) {
 
     var authToken = 'Bearer ' + githubToken;
 
+    const baseUrl = process.env.GITHUB_API_URL || 'https://api.github.com';
+    const customRequest = request.defaults({
+        baseUrl
+    });
+
     for(const element of flawLabels.concat(otherLabels) ) {
-        await request('POST /repos/{owner}/{repo}/labels', {
+        await customRequest('POST /repos/{owner}/{repo}/labels', {
             headers: {
                 authorization: authToken
             },

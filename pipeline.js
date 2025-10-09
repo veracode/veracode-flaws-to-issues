@@ -116,9 +116,13 @@ async function getAllVeracodeIssues(options) {
         let uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'pipeline').name);
         let reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}`
         //let reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriName},${uriType}&state=open&page={page}&per_page={pageMax}`
+        const baseUrl = process.env.GITHUB_API_URL || 'https://api.github.com';
+        const customRequest = request.defaults({
+            baseUrl
+        });
 
         while(!done) {
-            await request(reqStr, {
+            await customRequest(reqStr, {
                 headers: {
                     authorization: authToken
                 },

@@ -19,8 +19,12 @@ async function addVeracodeIssue(options, issue) {
 
     var authToken = 'token ' + githubToken;
 
+    const baseUrl = process.env.GITHUB_API_URL || 'https://api.github.com';
+    const customRequest = request.defaults({
+        baseUrl
+    });
 
-    await request('POST /repos/{owner}/{repo}/issues', {
+    await customRequest('POST /repos/{owner}/{repo}/issues', {
         headers: {
             authorization: authToken
         },
@@ -61,7 +65,7 @@ async function addVeracodeIssue(options, issue) {
             console.log('Running on a PR, adding PR to the issue.')
             //console.log('pr_link: '+issue.pr_link+'\nissue_number: '+issue_number)
         
-            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            await customRequest('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
                 headers: {
                     authorization: authToken
                 },
