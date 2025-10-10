@@ -655,12 +655,12 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_h
         {
             op: 'replace',
             path: '/fields/System.State',
-            value: 'Closed'
+            value: 'Completed'
         },
         {
             op: 'add',
             path: '/fields/System.History',
-            value: `Closed by Veracode scan - Flaw no longer found in scan from commit ${commit_hash || 'Unknown'} on GitHub`
+            value: `This work item has been automatically closed by Veracode automation because the flaw is no longer present in the latest scan results. Closed by Veracode scan from commit ${commit_hash || 'Unknown'} on GitHub.`
         }
     ];
 

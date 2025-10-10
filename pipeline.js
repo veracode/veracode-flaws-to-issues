@@ -453,7 +453,16 @@ old rewrite path */
                                 repo: options.githubRepo,
                                 issue_number: issueNumber,
                                 state: 'closed',
-                                state_reason: 'not_planned'
+                                state_reason: 'completed'
+                            });
+                            
+                            // Add comment explaining closure
+                            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                                headers: { authorization: authToken },
+                                owner: options.githubOwner,
+                                repo: options.githubRepo,
+                                issue_number: issueNumber,
+                                body: 'This issue has been automatically closed by Veracode automation because the flaw is no longer present in the latest scan results.'
                             });
                             
                             closedCount++;
