@@ -25,8 +25,8 @@ function getMostRecentAnnotation(annotations) {
 // Helper function to format annotation comment
 function formatAnnotationComment(annotation) {
     const date = new Date(annotation.created).toLocaleString();
-    // Map NETENV to PROPOSAL for better readability
-    const displayAction = annotation.action === 'NETENV' ? 'PROPOSAL' : annotation.action;
+    // Map all non-APPROVED/REJECTED actions to PROPOSAL for better readability
+    const displayAction = (annotation.action !== 'APPROVED' && annotation.action !== 'REJECTED') ? 'PROPOSAL' : annotation.action;
     let comment = `## Veracode Mitigation - ${displayAction}
 
 **Action:** ${annotation.action}
