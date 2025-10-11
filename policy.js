@@ -68,47 +68,11 @@ async function annotationCommentExists(options, issue_number, annotation) {
         console.log(expectedComment.substring(0, 200));
         
         const exists = response.data.some(comment => {
-            // For more robust duplicate detection, compare key fields instead of exact body match
-            const isApprovedComment = comment.body.includes('APPROVED') && expectedComment.includes('APPROVED');
-            const isRejectedComment = comment.body.includes('REJECTED') && expectedComment.includes('REJECTED');
-            const isProposalComment = comment.body.includes('PROPOSAL') && expectedComment.includes('PROPOSAL');
-            
-            let matches = false;
-            
-            if (isApprovedComment || isRejectedComment || isProposalComment) {
-                // Extract key information for comparison
-                const existingAction = comment.body.match(/\*\*Action:\*\* (.+)/)?.[1];
-                const existingComment = comment.body.match(/\*\*Comment:\*\* (.+)/)?.[1];
-                const existingUser = comment.body.match(/\*\*User:\*\* (.+)/)?.[1];
-                const existingDate = comment.body.match(/\*\*Date:\*\* (.+)/)?.[1];
-                
-                const expectedAction = expectedComment.match(/\*\*Action:\*\* (.+)/)?.[1];
-                const expectedCommentText = expectedComment.match(/\*\*Comment:\*\* (.+)/)?.[1];
-                const expectedUser = expectedComment.match(/\*\*User:\*\* (.+)/)?.[1];
-                const expectedDate = expectedComment.match(/\*\*Date:\*\* (.+)/)?.[1];
-                
-                // Compare key fields (ignore the proposed mitigation note)
-                matches = existingAction === expectedAction && 
-                         existingComment === expectedCommentText && 
-                         existingUser === expectedUser && 
-                         existingDate === expectedDate;
-                
-                console.log(`Detailed comparison for ${expectedAction}:`);
-                console.log(`  Action: ${existingAction} === ${expectedAction} ? ${existingAction === expectedAction}`);
-                console.log(`  Comment: ${existingComment} === ${expectedCommentText} ? ${existingComment === expectedCommentText}`);
-                console.log(`  User: ${existingUser} === ${expectedUser} ? ${existingUser === expectedUser}`);
-                console.log(`  Date: ${existingDate} === ${expectedDate} ? ${existingDate === expectedDate}`);
-                console.log(`  Overall match: ${matches}`);
-            } else {
-                // Fallback to exact match for other comment types
-                matches = comment.body === expectedComment;
-            }
-            
+            const matches = comment.body === expectedComment;
             if (matches) {
                 console.log(`Found duplicate comment: ${comment.id} posted at ${comment.created_at}`);
                 console.log(`Duplicate comment body preview: ${comment.body.substring(0, 100)}...`);
             }
-            
             return matches;
         });
         
@@ -176,6 +140,9 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
             state_reason: 'completed'
         });
         
+        // Find the most recent APPROVED annotation to use its data
+        const approvedAnnotation = flaw.annotations?.find(ann => ann.action === 'APPROVED');
+        
         // Add comment explaining closure
         await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
             headers: { authorization: 'token ' + options.githubToken },
@@ -185,9 +152,9 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
             body: `## Veracode Mitigation - APPROVED
 
 **Action:** APPROVED
-**Comment:** Flaw has been mitigated and approved
-**Date:** ${new Date(flaw.finding_status.last_seen_date).toISOString().replace('T', ' ').replace('Z', ' UTC')}
-**User:** Veracode Automation
+**Comment:** ${approvedAnnotation?.comment || 'Flaw has been mitigated and approved'}
+**Date:** ${approvedAnnotation ? new Date(approvedAnnotation.created).toISOString().replace('T', ' ').replace('Z', ' UTC') : new Date(flaw.finding_status.last_seen_date).toISOString().replace('T', ' ').replace('Z', ' UTC')}
+**User:** ${approvedAnnotation?.user_name || 'Veracode Automation'}
 
 > **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`
         });
@@ -307,6 +274,9 @@ async function processExistingIssueOriginal(flaw, issue_number, issueState, opti
             state_reason: 'completed'
         });
         
+        // Find the most recent APPROVED annotation to use its data
+        const approvedAnnotation = flaw.annotations?.find(ann => ann.action === 'APPROVED');
+        
         // Add comment explaining closure
         await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
             headers: { authorization: 'token ' + options.githubToken },
@@ -316,9 +286,9 @@ async function processExistingIssueOriginal(flaw, issue_number, issueState, opti
             body: `## Veracode Mitigation - APPROVED
 
 **Action:** APPROVED
-**Comment:** Flaw has been mitigated and approved
-**Date:** ${new Date(flaw.finding_status.last_seen_date).toISOString().replace('T', ' ').replace('Z', ' UTC')}
-**User:** Veracode Automation
+**Comment:** ${approvedAnnotation?.comment || 'Flaw has been mitigated and approved'}
+**Date:** ${approvedAnnotation ? new Date(approvedAnnotation.created).toISOString().replace('T', ' ').replace('Z', ' UTC') : new Date(flaw.finding_status.last_seen_date).toISOString().replace('T', ' ').replace('Z', ' UTC')}
+**User:** ${approvedAnnotation?.user_name || 'Veracode Automation'}
 
 > **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`
         });
