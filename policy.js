@@ -117,7 +117,14 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
             owner: options.githubOwner,
             repo: options.githubRepo,
             issue_number: issue_number,
-            body: 'This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).'
+            body: `## Veracode Mitigation - APPROVED
+
+**Action:** APPROVED
+**Comment:** Flaw has been mitigated and approved
+**Date:** ${new Date().toLocaleString()}
+**User:** Veracode Automation
+
+> **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`
         });
         
         return;
@@ -234,7 +241,14 @@ async function processExistingIssueOriginal(flaw, issue_number, issueState, opti
             owner: options.githubOwner,
             repo: options.githubRepo,
             issue_number: issue_number,
-            body: 'This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).'
+            body: `## Veracode Mitigation - APPROVED
+
+**Action:** APPROVED
+**Comment:** Flaw has been mitigated and approved
+**Date:** ${new Date().toLocaleString()}
+**User:** Veracode Automation
+
+> **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`
         });
         
         return;
