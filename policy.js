@@ -9,6 +9,7 @@ const addVeracodeIssueComment = require('./issue_comment').addVeracodeIssueComme
 const core = require('@actions/core');
 const fs = require('fs');
 const path = require('path');
+const util = require('./util');
 
 // Helper function to get the most recent annotation
 function getMostRecentAnnotation(annotations) {
