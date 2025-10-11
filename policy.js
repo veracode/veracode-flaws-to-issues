@@ -420,7 +420,7 @@ async function getAllVeracodeIssues(options) {
 
         let uriSeverity = encodeURIComponent(element.name);
         let uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'policy').name);
-        let reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}`
+        let reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=all&page={page}`
         //let reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriName},${uriType}&state=open&page={page}&per_page={pageMax}`
 
         while(!done) {
@@ -746,7 +746,7 @@ old rewrite path */
                     // First request - use page-based pagination
                     const uriSeverity = encodeURIComponent(element.name);
                     const uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'policy').name);
-                    reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}&per_page=100`;
+                    reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=all&page={page}&per_page=100`;
                     requestParams = {
                         headers: { authorization: authToken },
                         owner: options.githubOwner,
@@ -773,7 +773,7 @@ old rewrite path */
                             return title.includes(vid);
                         });
                         
-                        if (!isStillPresent) {
+                        if (!isStillPresent && issue.state === 'open') {
                             console.log(`Closing GitHub issue ${issueNumber} - flaw no longer found in scan: "${title}"`);
                             
                             // Close the issue
