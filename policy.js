@@ -24,7 +24,8 @@ function getMostRecentAnnotation(annotations) {
 
 // Helper function to format annotation comment
 function formatAnnotationComment(annotation) {
-    const date = new Date(annotation.created).toLocaleString();
+    // Use UTC time to avoid timezone conversion issues
+    const date = new Date(annotation.created).toISOString().replace('T', ' ').replace('Z', ' UTC');
     // Map all non-APPROVED/REJECTED actions to PROPOSAL for better readability
     const displayAction = (annotation.action !== 'APPROVED' && annotation.action !== 'REJECTED') ? 'PROPOSAL' : annotation.action;
     let comment = `## Veracode Mitigation - ${displayAction}
@@ -146,7 +147,7 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
 
 **Action:** APPROVED
 **Comment:** Flaw has been mitigated and approved
-**Date:** ${new Date(flaw.finding_status.last_seen_date).toLocaleString()}
+**Date:** ${new Date(flaw.finding_status.last_seen_date).toISOString().replace('T', ' ').replace('Z', ' UTC')}
 **User:** Veracode Automation
 
 > **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`
@@ -277,7 +278,7 @@ async function processExistingIssueOriginal(flaw, issue_number, issueState, opti
 
 **Action:** APPROVED
 **Comment:** Flaw has been mitigated and approved
-**Date:** ${new Date(flaw.finding_status.last_seen_date).toLocaleString()}
+**Date:** ${new Date(flaw.finding_status.last_seen_date).toISOString().replace('T', ' ').replace('Z', ' UTC')}
 **User:** Veracode Automation
 
 > **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`

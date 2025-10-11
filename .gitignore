@@ -23,3 +23,4 @@ policy.js.backup
 test/policy-annotations.json
 test/policy_flaws1.json
 test/policy_flaws2.json
+test/
