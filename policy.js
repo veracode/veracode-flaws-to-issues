@@ -62,12 +62,22 @@ async function annotationCommentExists(options, issue_number, annotation) {
         console.log(`Expected comment body length: ${expectedComment.length}`);
         
         // Check if any existing comment matches our expected comment
+        console.log(`Checking ${response.data.length} existing comments for duplicates...`);
         const exists = response.data.some(comment => {
             const matches = comment.body === expectedComment;
             if (matches) {
                 console.log(`Found duplicate comment: ${comment.id} posted at ${comment.created_at}`);
+                console.log(`Duplicate comment body preview: ${comment.body.substring(0, 100)}...`);
             }
             return matches;
+        });
+        
+        // Debug: Show all existing comment titles for comparison
+        console.log(`Existing comment titles:`);
+        response.data.forEach((comment, index) => {
+            const titleMatch = comment.body.match(/## Veracode Mitigation - (.+)/);
+            const title = titleMatch ? titleMatch[1] : 'No title found';
+            console.log(`  ${index + 1}. ${title} (${comment.created_at})`);
         });
         
         console.log(`Duplicate check result: ${exists ? 'EXISTS' : 'NOT FOUND'}`);
@@ -136,7 +146,7 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
 
 **Action:** APPROVED
 **Comment:** Flaw has been mitigated and approved
-**Date:** ${new Date().toLocaleString()}
+**Date:** ${new Date(flaw.finding_status.last_seen_date).toLocaleString()}
 **User:** Veracode Automation
 
 > **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`
@@ -267,7 +277,7 @@ async function processExistingIssueOriginal(flaw, issue_number, issueState, opti
 
 **Action:** APPROVED
 **Comment:** Flaw has been mitigated and approved
-**Date:** ${new Date().toLocaleString()}
+**Date:** ${new Date(flaw.finding_status.last_seen_date).toLocaleString()}
 **User:** Veracode Automation
 
 > **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`
