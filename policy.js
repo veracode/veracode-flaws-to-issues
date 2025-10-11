@@ -25,7 +25,7 @@ function getMostRecentAnnotation(annotations) {
 // Helper function to format annotation comment
 function formatAnnotationComment(annotation) {
     const date = new Date(annotation.created).toLocaleString();
-    let comment = `## Veracode Mitigation
+    let comment = `## Veracode Mitigation - ${annotation.action}
 
 **Action:** ${annotation.action}
 **Comment:** ${annotation.comment}
