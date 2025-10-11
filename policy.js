@@ -138,34 +138,42 @@ async function annotationCommentExists(options, issue_number, annotation) {
 
 // Helper function to process annotations and determine action
 function processAnnotations(annotations) {
-    const mostRecent = getMostRecentAnnotation(annotations);
-    
-    if (!mostRecent) {
+    if (!annotations || annotations.length === 0) {
         return { action: 'none', annotations: [] };
     }
     
     // Sort all annotations by created date (most recent first)
     const sortedAnnotations = annotations.sort((a, b) => new Date(b.created) - new Date(a.created));
     
-    if (mostRecent.action === 'APPROVED') {
-        return { 
-            action: 'close', 
-            annotations: sortedAnnotations,
-            mostRecent: mostRecent
-        };
-    } else if (mostRecent.action === 'REJECTED') {
-        return { 
-            action: 'reopen', 
-            annotations: sortedAnnotations,
-            mostRecent: mostRecent
-        };
-    } else {
-        return { 
-            action: 'update', 
-            annotations: sortedAnnotations,
-            mostRecent: mostRecent
-        };
+    // Find the most recent APPROVED or REJECTED annotation (these take precedence)
+    const mostRecentApprovedOrRejected = sortedAnnotations.find(ann => 
+        ann.action === 'APPROVED' || ann.action === 'REJECTED'
+    );
+    
+    // If we have an APPROVED or REJECTED annotation, use it to determine the action
+    if (mostRecentApprovedOrRejected) {
+        if (mostRecentApprovedOrRejected.action === 'APPROVED') {
+            return { 
+                action: 'close', 
+                annotations: sortedAnnotations,
+                mostRecent: mostRecentApprovedOrRejected
+            };
+        } else if (mostRecentApprovedOrRejected.action === 'REJECTED') {
+            return { 
+                action: 'reopen', 
+                annotations: sortedAnnotations,
+                mostRecent: mostRecentApprovedOrRejected
+            };
+        }
     }
+    
+    // If no APPROVED or REJECTED annotations, use the most recent annotation for update
+    const mostRecent = sortedAnnotations[0];
+    return { 
+        action: 'update', 
+        annotations: sortedAnnotations,
+        mostRecent: mostRecent
+    };
 }
 
 // Process existing issue with annotations (new workflow)
