@@ -42,6 +42,27 @@ function formatAnnotationComment(annotation) {
     return comment;
 }
 
+// Helper function to check if an annotation comment already exists
+async function annotationCommentExists(options, issue_number, annotation) {
+    try {
+        const response = await request('GET /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            per_page: 100
+        });
+        
+        const expectedComment = formatAnnotationComment(annotation);
+        
+        // Check if any existing comment matches our expected comment
+        return response.data.some(comment => comment.body === expectedComment);
+    } catch (error) {
+        console.error(`Error checking for existing annotation comment: ${error.message}`);
+        return false; // If we can't check, assume it doesn't exist to avoid missing comments
+    }
+}
+
 // Helper function to process annotations and determine action
 function processAnnotations(annotations) {
     const mostRecent = getMostRecentAnnotation(annotations);
@@ -92,14 +113,20 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
             state_reason: 'completed'
         });
         
-        // Add comment for the most recent annotation
-        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
-            headers: { authorization: 'token ' + options.githubToken },
-            owner: options.githubOwner,
-            repo: options.githubRepo,
-            issue_number: issue_number,
-            body: formatAnnotationComment(annotationResult.mostRecent)
-        });
+        // Add comment for the most recent annotation (if not already exists)
+        const commentExists = await annotationCommentExists(options, issue_number, annotationResult.mostRecent);
+        if (!commentExists) {
+            console.log(`Adding comment for annotation: ${annotationResult.mostRecent.action} by ${annotationResult.mostRecent.user_name}`);
+            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issue_number,
+                body: formatAnnotationComment(annotationResult.mostRecent)
+            });
+        } else {
+            console.log(`Skipping duplicate comment for annotation: ${annotationResult.mostRecent.action} by ${annotationResult.mostRecent.user_name}`);
+        }
         
     } else if (annotationResult.action === 'reopen') {
         console.log(`Reopening issue ${issue_number} - most recent annotation is REJECTED`);
@@ -115,31 +142,45 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
             });
         }
         
-        // Add comment for the most recent annotation
-        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
-            headers: { authorization: 'token ' + options.githubToken },
-            owner: options.githubOwner,
-            repo: options.githubRepo,
-            issue_number: issue_number,
-            body: formatAnnotationComment(annotationResult.mostRecent)
-        });
+        // Add comment for the most recent annotation (if not already exists)
+        const commentExists = await annotationCommentExists(options, issue_number, annotationResult.mostRecent);
+        if (!commentExists) {
+            console.log(`Adding comment for annotation: ${annotationResult.mostRecent.action} by ${annotationResult.mostRecent.user_name}`);
+            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issue_number,
+                body: formatAnnotationComment(annotationResult.mostRecent)
+            });
+        } else {
+            console.log(`Skipping duplicate comment for annotation: ${annotationResult.mostRecent.action} by ${annotationResult.mostRecent.user_name}`);
+        }
         
     } else if (annotationResult.action === 'update') {
         console.log(`Updating issue ${issue_number} - adding annotation comments`);
         
         // Add comments for all annotations (most recent first)
         for (const annotation of annotationResult.annotations) {
-            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
-                headers: { authorization: 'token ' + options.githubToken },
-                owner: options.githubOwner,
-                repo: options.githubRepo,
-                issue_number: issue_number,
-                body: formatAnnotationComment(annotation)
-            });
+            // Check if this annotation comment already exists
+            const commentExists = await annotationCommentExists(options, issue_number, annotation);
             
-            // Rate limiting
-            if(waitTime > 0) {
-                await util.sleep(waitTime * 1000);
+            if (!commentExists) {
+                console.log(`Adding comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issue_number,
+                    body: formatAnnotationComment(annotation)
+                });
+                
+                // Rate limiting
+                if(waitTime > 0) {
+                    await util.sleep(waitTime * 1000);
+                }
+            } else {
+                console.log(`Skipping duplicate comment for annotation: ${annotation.action} by ${annotation.user_name}`);
             }
         }
     }
@@ -198,43 +239,63 @@ async function processNewIssueWithAnnotations(flaw, issueResult, options, waitTi
             state_reason: 'completed'
         });
         
-        // Add comment for the most recent annotation
-        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
-            headers: { authorization: 'token ' + options.githubToken },
-            owner: options.githubOwner,
-            repo: options.githubRepo,
-            issue_number: issueResult,
-            body: formatAnnotationComment(annotationResult.mostRecent)
-        });
+        // Add comment for the most recent annotation (if not already exists)
+        const commentExists = await annotationCommentExists(options, issueResult, annotationResult.mostRecent);
+        if (!commentExists) {
+            console.log(`Adding comment for annotation: ${annotationResult.mostRecent.action} by ${annotationResult.mostRecent.user_name}`);
+            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issueResult,
+                body: formatAnnotationComment(annotationResult.mostRecent)
+            });
+        } else {
+            console.log(`Skipping duplicate comment for annotation: ${annotationResult.mostRecent.action} by ${annotationResult.mostRecent.user_name}`);
+        }
         
     } else if (annotationResult.action === 'reopen') {
         console.log(`Newly created issue ${issueResult} - most recent annotation is REJECTED (keeping open)`);
         
-        // Add comment for the most recent annotation (issue stays open)
-        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
-            headers: { authorization: 'token ' + options.githubToken },
-            owner: options.githubOwner,
-            repo: options.githubRepo,
-            issue_number: issueResult,
-            body: formatAnnotationComment(annotationResult.mostRecent)
-        });
+        // Add comment for the most recent annotation (if not already exists)
+        const commentExists = await annotationCommentExists(options, issueResult, annotationResult.mostRecent);
+        if (!commentExists) {
+            console.log(`Adding comment for annotation: ${annotationResult.mostRecent.action} by ${annotationResult.mostRecent.user_name}`);
+            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issueResult,
+                body: formatAnnotationComment(annotationResult.mostRecent)
+            });
+        } else {
+            console.log(`Skipping duplicate comment for annotation: ${annotationResult.mostRecent.action} by ${annotationResult.mostRecent.user_name}`);
+        }
         
     } else if (annotationResult.action === 'update') {
         console.log(`Adding annotation comments to newly created issue ${issueResult}`);
         
         // Add comments for all annotations (most recent first)
         for (const annotation of annotationResult.annotations) {
-            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
-                headers: { authorization: 'token ' + options.githubToken },
-                owner: options.githubOwner,
-                repo: options.githubRepo,
-                issue_number: issueResult,
-                body: formatAnnotationComment(annotation)
-            });
+            // Check if this annotation comment already exists
+            const commentExists = await annotationCommentExists(options, issueResult, annotation);
             
-            // Rate limiting
-            if(waitTime > 0) {
-                await util.sleep(waitTime * 1000);
+            if (!commentExists) {
+                console.log(`Adding comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issueResult,
+                    body: formatAnnotationComment(annotation)
+                });
+                
+                // Rate limiting
+                if(waitTime > 0) {
+                    await util.sleep(waitTime * 1000);
+                }
+            } else {
+                console.log(`Skipping duplicate comment for annotation: ${annotation.action} by ${annotation.user_name}`);
             }
         }
     }
