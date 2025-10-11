@@ -97,6 +97,32 @@ function processAnnotations(annotations) {
 
 // Process existing issue with annotations (new workflow)
 async function processExistingIssueWithAnnotations(flaw, issue_number, issueState, options, waitTime) {
+    // Check if flaw is mitigated first
+    if(flaw.finding_status.resolution_status == 'APPROVED') {
+        console.log(`Flaw ${flaw.issue_id} is mitigated, closing existing issue ${issue_number}`);
+        
+        // Close the issue
+        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            state: 'closed',
+            state_reason: 'completed'
+        });
+        
+        // Add comment explaining closure
+        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            body: 'This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).'
+        });
+        
+        return;
+    }
+    
     const annotationResult = processAnnotations(flaw.annotations);
     console.log(`Processing annotations for flaw ${flaw.issue_id}: ${annotationResult.action} (${flaw.annotations.length} annotations)`);
     
@@ -188,6 +214,32 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
 
 // Process existing issue without annotations (original workflow)
 async function processExistingIssueOriginal(flaw, issue_number, issueState, options) {
+    // Check if flaw is mitigated first
+    if(flaw.finding_status.resolution_status == 'APPROVED') {
+        console.log(`Flaw ${flaw.issue_id} is mitigated, closing existing issue ${issue_number}`);
+        
+        // Close the issue
+        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            state: 'closed',
+            state_reason: 'completed'
+        });
+        
+        // Add comment explaining closure
+        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            body: 'This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).'
+        });
+        
+        return;
+    }
+    
     if ( options.debug == "true" ){
         core.info('#### DEBUG START ####')
         core.info('policy.js')
@@ -439,12 +491,6 @@ async function processPolicyFlaws(options, flawData, autoCloseFindings) {
         let issueState = getIssueState(vid)
         console.debug(`processing flaw ${flaw.issue_id}, VeracodeID: ${vid}`);
 
-        // check for mitigation
-        if(flaw.finding_status.resolution_status == 'APPROVED') {
-            console.log('Flaw mitigated, skipping import');
-            continue;
-        }
-
         // check for duplicate
         if(issueExists(vid)) {
             console.log('Issue already exists, processing...');
@@ -457,6 +503,12 @@ async function processPolicyFlaws(options, flawData, autoCloseFindings) {
                 // Use original workflow
                 await processExistingIssueOriginal(flaw, issue_number, issueState, options);
             }
+            continue;
+        }
+
+        // check for mitigation (only for new issues)
+        if(flaw.finding_status.resolution_status == 'APPROVED') {
+            console.log('Flaw mitigated, skipping import');
             continue;
         }
 
