@@ -2,6 +2,8 @@
 
 This action can be used in a workflow after a Veracode Static Analysis (either Pipeline Scan or Policy/Sandbox scan) to take the results of the scan and import them into GitHub as Issues or Azure DevOps as Work Items.
 
+**New Feature**: For Policy scans, the action now supports an advanced annotation-based workflow that allows security teams to automatically manage issue lifecycle through Veracode annotations, including automatic issue closing for approved mitigations and reopening for rejected ones.
+
 ## Supported Defect Tracking Systems
 
 This action supports two defect tracking systems:
@@ -40,7 +42,68 @@ Note that when Issues are added, a tag is inserted into the Issue title.  The ta
 ## Importing Policy/Sandbox Scan flaws
 For a Policy or Sandbox scan, this is done with the Findings REST API call, see [Findings REST API](https://help.veracode.com/r/c_findings_v2_intro).
 
-Note that when Issues are added, a tag is inserted into the Issue title.  The tag is of the form `[VID:<flaw_number>]`.  This tag is used to prevent duplicate issues from getting created.  
+**Important**: To enable the annotation-based workflow, ensure your API call includes the `include_annot=TRUE` parameter to fetch annotations along with the findings data.
+
+Note that when Issues are added, a tag is inserted into the Issue title.  The tag is of the form `[VID:<flaw_number>]`.  This tag is used to prevent duplicate issues from getting created.
+
+### Annotation-Based Workflow (Policy Scans Only)
+
+For Policy scans, the action supports an advanced annotation-based workflow that allows security teams to manage issue lifecycle through Veracode annotations. This feature is only available for Policy scans and requires:
+
+1. **API Parameter**: The Veracode API call must include `include_annot=TRUE` to fetch annotations
+2. **Data Structure**: The scan results must include an `annotations` array for each finding
+
+#### How It Works
+
+When a Policy scan includes annotations, the action will:
+
+1. **Process each finding's annotations** to determine the appropriate action
+2. **Make decisions based on the most recent annotation** (by creation date)
+3. **Automatically manage issue state** based on annotation actions
+
+#### Supported Annotation Actions
+
+- **`APPROVED`** - Closes the GitHub issue (indicates the finding has been properly mitigated)
+- **`REJECTED`** - Reopens closed issues or keeps open issues open (indicates the mitigation was rejected)
+- **Other actions** (e.g., `OSENV`, `FALSE_POSITIVE`, etc.) - Updates the issue with annotation comments (indicates proposed mitigations)
+
+#### Annotation Comments
+
+Each annotation generates a structured comment on the GitHub issue with the following format:
+
+```markdown
+## Veracode Mitigation
+
+**Action:** [APPROVED/REJECTED/OSENV/etc.]
+**Comment:** [annotation comment]
+**Date:** [formatted date]
+**User:** [user name]
+
+> **Note:** This is a proposed mitigation, please talk to your security team for approval.
+```
+
+*Note: The "proposed mitigation" message only appears for actions that are neither APPROVED nor REJECTED.*
+
+#### Workflow Examples
+
+**Scenario 1: Approved Mitigation**
+- Finding has annotation: `{ "action": "APPROVED", "comment": "Fixed in latest commit", ... }`
+- Result: GitHub issue is closed with the annotation comment
+
+**Scenario 2: Rejected Mitigation**
+- Finding has annotation: `{ "action": "REJECTED", "comment": "This approach has security concerns", ... }`
+- Result: GitHub issue is reopened (if closed) or kept open, with the annotation comment
+
+**Scenario 3: Proposed Mitigation**
+- Finding has annotation: `{ "action": "OSENV", "comment": "Should use environment variables", ... }`
+- Result: GitHub issue is updated with the annotation comment (including the proposed mitigation note)
+
+#### Fallback Behavior
+
+If a Policy scan does not include annotations, the action falls back to the standard workflow:
+- Creates new issues for new findings
+- Links existing issues to pull requests when running on PRs
+- Closes issues for findings no longer present (when `autoCloseFindings` is enabled)  
   
 ## Pull request decoration (GitHub only)
 This action supports pull request decoration when using GitHub Issues. Once an issue is generated and the job runs on a PR, the issue will automatically be linked to the PR. This is done for easy review and an easy approval process.  
@@ -276,6 +339,7 @@ The PAT should be scoped to the specific project where work items will be create
       #		due to Veracode results limiting
       # See the get_flaws.sh script in the helpers directory
       #		for a more elaborate method
+      # Note: include_annot=TRUE is required for annotation-based workflow
       - name: get policy flaws
         run: |
           cd /tmp
@@ -283,9 +347,9 @@ The PAT should be scoped to the specific project where work items will be create
           export VERACODE_API_KEY_SECRET=${{ secrets.VERACODE_API_KEY }}
           guid=$(http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v1/applications?name=NodeGoat" | jq -r '._embedded.applications[0].guid') 
           echo GUID: ${guid}
-          total_flaws=$(http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v2/applications/${guid}/findings?scan_type=STATIC&violates_policy=True" | jq -r '.page.total_elements')
+          total_flaws=$(http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v2/applications/${guid}/findings?scan_type=STATIC&violates_policy=True&include_annot=TRUE" | jq -r '.page.total_elements')
           echo TOTAL_FLAWS: ${total_flaws}
-          http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v2/applications/${guid}/findings?scan_type=STATIC&violates_policy=True&size=${total_flaws}" > policy_flaws.json
+          http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v2/applications/${guid}/findings?scan_type=STATIC&violates_policy=True&include_annot=TRUE&size=${total_flaws}" > policy_flaws.json
 
       - name: save results file
         uses: actions/upload-artifact@v3
@@ -381,9 +445,9 @@ The PAT should be scoped to the specific project where work items will be create
           export VERACODE_API_KEY_SECRET=${{ secrets.VERACODE_API_KEY }}
           guid=$(http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v1/applications?name=NodeGoat" | jq -r '._embedded.applications[0].guid') 
           echo GUID: ${guid}
-          total_flaws=$(http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v2/applications/${guid}/findings?scan_type=STATIC&violates_policy=True" | jq -r '.page.total_elements')
+          total_flaws=$(http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v2/applications/${guid}/findings?scan_type=STATIC&violates_policy=True&include_annot=TRUE" | jq -r '.page.total_elements')
           echo TOTAL_FLAWS: ${total_flaws}
-          http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v2/applications/${guid}/findings?scan_type=STATIC&violates_policy=True&size=${total_flaws}" > policy_flaws.json
+          http --auth-type veracode_hmac GET "https://api.veracode.com/appsec/v2/applications/${guid}/findings?scan_type=STATIC&violates_policy=True&include_annot=TRUE&size=${total_flaws}" > policy_flaws.json
 
       - name: save results file
         uses: actions/upload-artifact@v3

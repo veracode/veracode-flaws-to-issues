@@ -10,6 +10,235 @@ const core = require('@actions/core');
 const fs = require('fs');
 const path = require('path');
 
+// Helper function to get the most recent annotation
+function getMostRecentAnnotation(annotations) {
+    if (!annotations || annotations.length === 0) {
+        return null;
+    }
+    
+    // Sort by created date (most recent first)
+    const sortedAnnotations = annotations.sort((a, b) => new Date(b.created) - new Date(a.created));
+    return sortedAnnotations[0];
+}
+
+// Helper function to format annotation comment
+function formatAnnotationComment(annotation) {
+    const date = new Date(annotation.created).toLocaleString();
+    let comment = `## Veracode Mitigation
+
+**Action:** ${annotation.action}
+**Comment:** ${annotation.comment}
+**Date:** ${date}
+**User:** ${annotation.user_name}`;
+    
+    // Add proposed mitigation message for actions that are neither APPROVED nor REJECTED
+    if (annotation.action !== 'APPROVED' && annotation.action !== 'REJECTED') {
+        comment += `
+
+> **Note:** This is a proposed mitigation, please talk to your security team for approval.`;
+    }
+    
+    return comment;
+}
+
+// Helper function to process annotations and determine action
+function processAnnotations(annotations) {
+    const mostRecent = getMostRecentAnnotation(annotations);
+    
+    if (!mostRecent) {
+        return { action: 'none', annotations: [] };
+    }
+    
+    // Sort all annotations by created date (most recent first)
+    const sortedAnnotations = annotations.sort((a, b) => new Date(b.created) - new Date(a.created));
+    
+    if (mostRecent.action === 'APPROVED') {
+        return { 
+            action: 'close', 
+            annotations: sortedAnnotations,
+            mostRecent: mostRecent
+        };
+    } else if (mostRecent.action === 'REJECTED') {
+        return { 
+            action: 'reopen', 
+            annotations: sortedAnnotations,
+            mostRecent: mostRecent
+        };
+    } else {
+        return { 
+            action: 'update', 
+            annotations: sortedAnnotations,
+            mostRecent: mostRecent
+        };
+    }
+}
+
+// Process existing issue with annotations (new workflow)
+async function processExistingIssueWithAnnotations(flaw, issue_number, issueState, options, waitTime) {
+    const annotationResult = processAnnotations(flaw.annotations);
+    console.log(`Processing annotations for flaw ${flaw.issue_id}: ${annotationResult.action} (${flaw.annotations.length} annotations)`);
+    
+    if (annotationResult.action === 'close') {
+        console.log(`Closing issue ${issue_number} - most recent annotation is APPROVED`);
+        
+        // Close the issue
+        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            state: 'closed',
+            state_reason: 'completed'
+        });
+        
+        // Add comment for the most recent annotation
+        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            body: formatAnnotationComment(annotationResult.mostRecent)
+        });
+        
+    } else if (annotationResult.action === 'reopen') {
+        console.log(`Reopening issue ${issue_number} - most recent annotation is REJECTED`);
+        
+        // Reopen the issue if it's closed
+        if (issueState === 'closed') {
+            await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issue_number,
+                state: 'open'
+            });
+        }
+        
+        // Add comment for the most recent annotation
+        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            body: formatAnnotationComment(annotationResult.mostRecent)
+        });
+        
+    } else if (annotationResult.action === 'update') {
+        console.log(`Updating issue ${issue_number} - adding annotation comments`);
+        
+        // Add comments for all annotations (most recent first)
+        for (const annotation of annotationResult.annotations) {
+            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issue_number,
+                body: formatAnnotationComment(annotation)
+            });
+            
+            // Rate limiting
+            if(waitTime > 0) {
+                await util.sleep(waitTime * 1000);
+            }
+        }
+    }
+}
+
+// Process existing issue without annotations (original workflow)
+async function processExistingIssueOriginal(flaw, issue_number, issueState, options) {
+    if ( options.debug == "true" ){
+        core.info('#### DEBUG START ####')
+        core.info('policy.js')
+        console.log("isPr?: "+options.isPR)
+        core.info('#### DEBUG END ####')
+    }
+    if ( options.isPR >= 1 && issueState == "open" ){
+        console.log('We are on a PR, need to link this issue to this PR')
+        pr_link = `Veracode issue link to PR: https://github.com/`+options.githubOwner+`/`+options.githubRepo+`/pull/`+options.pr_commentID
+
+        let issueComment = {
+            'issue_number': issue_number,
+            'pr_link': pr_link
+        }; 
+
+        await addVeracodeIssueComment(options, issueComment)
+        .catch( error => {
+            if(error instanceof util.ApiError) {
+                throw error;
+            } else {
+                //console.error(error.message);
+                throw error; 
+            }
+        })
+    }
+    else if (issueState == "closed"){
+        console.log('GitHub issue is closed no need to update.')
+    }
+    else {
+        console.log('GitHub issue is open but not on a PR, no need to update.')
+    }
+}
+
+// Process new issue with annotations
+async function processNewIssueWithAnnotations(flaw, issueResult, options, waitTime) {
+    const annotationResult = processAnnotations(flaw.annotations);
+    console.log(`Processing annotations for new issue ${issueResult}: ${annotationResult.action} (${flaw.annotations.length} annotations)`);
+    
+    if (annotationResult.action === 'close') {
+        console.log(`Closing newly created issue ${issueResult} - most recent annotation is APPROVED`);
+        
+        // Close the issue
+        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issueResult,
+            state: 'closed',
+            state_reason: 'completed'
+        });
+        
+        // Add comment for the most recent annotation
+        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issueResult,
+            body: formatAnnotationComment(annotationResult.mostRecent)
+        });
+        
+    } else if (annotationResult.action === 'reopen') {
+        console.log(`Newly created issue ${issueResult} - most recent annotation is REJECTED (keeping open)`);
+        
+        // Add comment for the most recent annotation (issue stays open)
+        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issueResult,
+            body: formatAnnotationComment(annotationResult.mostRecent)
+        });
+        
+    } else if (annotationResult.action === 'update') {
+        console.log(`Adding annotation comments to newly created issue ${issueResult}`);
+        
+        // Add comments for all annotations (most recent first)
+        for (const annotation of annotationResult.annotations) {
+            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issueResult,
+                body: formatAnnotationComment(annotation)
+            });
+            
+            // Rate limiting
+            if(waitTime > 0) {
+                await util.sleep(waitTime * 1000);
+            }
+        }
+    }
+}
+
 // sparse array, element = true if the flaw exists, undefined otherwise
 var existingFlaws = [];
 var existingFlawNumber = [];
@@ -156,42 +385,16 @@ async function processPolicyFlaws(options, flawData, autoCloseFindings) {
 
         // check for duplicate
         if(issueExists(vid)) {
-            console.log('Issue already exists, skipping import');
-            if ( options.debug == "true" ){
-                core.info('#### DEBUG START ####')
-                core.info('policy.js')
-                console.log("isPr?: "+options.isPR)
-                core.info('#### DEBUG END ####')
+            console.log('Issue already exists, processing...');
+            
+            // Check if this flaw has annotations
+            if (flaw.annotations && flaw.annotations.length > 0) {
+                // Use annotation-based workflow
+                await processExistingIssueWithAnnotations(flaw, issue_number, issueState, options, waitTime);
+            } else {
+                // Use original workflow
+                await processExistingIssueOriginal(flaw, issue_number, issueState, options);
             }
-            if ( options.isPR >= 1 && issueState == "open" ){
-                console.log('We are on a PR, need to link this issue to this PR')
-                pr_link = `Veracode issue link to PR: https://github.com/`+options.githubOwner+`/`+options.githubRepo+`/pull/`+options.pr_commentID
-
-                let issueComment = {
-                    'issue_number': issue_number,
-                    'pr_link': pr_link
-                }; 
-    
-    
-                await addVeracodeIssueComment(options, issueComment)
-                .catch( error => {
-                    if(error instanceof util.ApiError) {
-                        throw error;
-                    } else {
-                        //console.error(error.message);
-                        throw error; 
-                    }
-                })
-            }
-            else if (issueState == "closed"){
-                console.log('GitHub issue is closed no need to update.')
-            }
-            else {
-                console.log('GitHub issue is open but not on a PR, no need to update.')
-            }
-
-
-    
             continue;
         }
 
@@ -340,7 +543,7 @@ old rewrite path */
 
         console.log('Issue: '+JSON.stringify(issue))
         
-        await addVeracodeIssue(options, issue)
+        const issueResult = await addVeracodeIssue(options, issue)
         .catch( error => {
             if(error instanceof util.ApiError) {
 
@@ -362,7 +565,12 @@ old rewrite path */
                 //console.error(error.message);
                 throw error; 
             }
-        })
+        });
+
+        // Handle annotations for newly created issues
+        if (flaw.annotations && flaw.annotations.length > 0) {
+            await processNewIssueWithAnnotations(flaw, issueResult, options, waitTime);
+        }
 
         console.log('My Issue Nmbuer: '+addVeracodeIssue.issue_numnber)
 

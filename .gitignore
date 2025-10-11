@@ -17,3 +17,7 @@ test-work-item-types.js
 test/17flaws.txt
 .gitignore
 test/133flaws.txt
+importer.js.backup
+index.js.backup
+policy.js.backup
+test/policy-annotations.json
