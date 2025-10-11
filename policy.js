@@ -697,7 +697,8 @@ old rewrite path */
 
         // Handle annotations for newly created issues
         if (flaw.annotations && flaw.annotations.length > 0) {
-            await processNewIssueWithAnnotations(flaw, issueResult, options, waitTime);
+            const issueNumber = await issueResult;
+            await processNewIssueWithAnnotations(flaw, issueNumber, options, waitTime);
         }
 
         console.log('My Issue Nmbuer: '+addVeracodeIssue.issue_numnber)

@@ -20,7 +20,7 @@ async function addVeracodeIssue(options, issue) {
     var authToken = 'token ' + githubToken;
 
 
-    await request('POST /repos/{owner}/{repo}/issues', {
+    return await request('POST /repos/{owner}/{repo}/issues', {
         headers: {
             authorization: authToken
         },
