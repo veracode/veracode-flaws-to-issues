@@ -68,11 +68,55 @@ async function annotationCommentExists(options, issue_number, annotation) {
         console.log(expectedComment.substring(0, 200));
         
         const exists = response.data.some(comment => {
-            const matches = comment.body === expectedComment;
+            // First try exact match
+            let matches = comment.body === expectedComment;
+            
+            if (!matches) {
+                // If exact match fails, try comparing key fields for annotation comments
+                const isAnnotationComment = comment.body.includes('**User:** Julian Totzek-Hallhuber') || 
+                                           (comment.body.includes('**User:** ') && !comment.body.includes('**User:** Veracode Automation'));
+                
+                if (isAnnotationComment) {
+                    // Extract key fields for comparison
+                    const existingAction = comment.body.match(/\*\*Action:\*\* (.+)/)?.[1];
+                    const existingComment = comment.body.match(/\*\*Comment:\*\* (.+)/)?.[1];
+                    const existingUser = comment.body.match(/\*\*User:\*\* (.+)/)?.[1];
+                    const existingDate = comment.body.match(/\*\*Date:\*\* (.+)/)?.[1];
+                    
+                    const expectedAction = expectedComment.match(/\*\*Action:\*\* (.+)/)?.[1];
+                    const expectedCommentText = expectedComment.match(/\*\*Comment:\*\* (.+)/)?.[1];
+                    const expectedUser = expectedComment.match(/\*\*User:\*\* (.+)/)?.[1];
+                    const expectedDate = expectedComment.match(/\*\*Date:\*\* (.+)/)?.[1];
+                    
+                    console.log(`Field comparison for ${expectedAction}:`);
+                    console.log(`  Existing Action: "${existingAction}"`);
+                    console.log(`  Expected Action: "${expectedAction}"`);
+                    console.log(`  Existing Comment: "${existingComment}"`);
+                    console.log(`  Expected Comment: "${expectedCommentText}"`);
+                    console.log(`  Existing User: "${existingUser}"`);
+                    console.log(`  Expected User: "${expectedUser}"`);
+                    console.log(`  Existing Date: "${existingDate}"`);
+                    console.log(`  Expected Date: "${expectedDate}"`);
+                    
+                    // Compare key fields including annotation dates (not GitHub creation dates)
+                    matches = existingAction === expectedAction && 
+                             existingComment === expectedCommentText && 
+                             existingUser === expectedUser &&
+                             existingDate === expectedDate;
+                    
+                    console.log(`  Field comparison result: ${matches}`);
+                    
+                    if (matches) {
+                        console.log(`Found duplicate by field comparison: ${comment.id} posted at ${comment.created_at}`);
+                    }
+                }
+            }
+            
             if (matches) {
                 console.log(`Found duplicate comment: ${comment.id} posted at ${comment.created_at}`);
                 console.log(`Duplicate comment body preview: ${comment.body.substring(0, 100)}...`);
             }
+            
             return matches;
         });
         
