@@ -165,7 +165,7 @@ async function getAllVeracodeIssues(options) {
     }
 }
 
-async function processPipelineFlaws(options, flawData) {
+async function processPipelineFlaws(options, flawData, autoCloseFindings) {
 
     const util = require('./util');
 
@@ -211,8 +211,11 @@ async function processPipelineFlaws(options, flawData) {
                 })
 
             }
-            else{
+            else if (issueState == "closed"){
                 console.log('GitHub issue is closed no need to update.')
+            }
+            else {
+                console.log('GitHub issue is open but not on a PR, no need to update.')
             }
 
 
@@ -378,6 +381,128 @@ old rewrite path */
         // rate limiter, per GitHub: https://docs.github.com/en/rest/guides/best-practices-for-integrators
         if(waitTime > 0)
             await util.sleep(waitTime * 1000);
+    }
+
+    // Close issues that are no longer present in the scan results
+    if (autoCloseFindings) {
+        console.log(`\nChecking for GitHub issues to close (flaws not found in current scan)...`);
+        console.log(`Current scan has ${flawData.findings.length} flaws`);
+        let closedCount = 0;
+        let totalIssuesChecked = 0;
+        
+        // Get all existing open issues with Veracode tags
+        const { request } = require('@octokit/request');
+        const authToken = 'token ' + options.githubToken;
+        
+        for(const element of label.flawLabels) {
+            let done = false;
+            let pageNum = 1;
+            let issuesForThisSeverity = 0;
+            let nextUrl = null;
+            
+            console.log(`\nChecking ${element.name} issues...`);
+            
+            while(!done) {
+                let reqStr;
+                let requestParams;
+                
+                if (nextUrl) {
+                    // Use the next URL from the Link header for cursor-based pagination
+                    reqStr = nextUrl;
+                    requestParams = {
+                        headers: { authorization: authToken }
+                    };
+                } else {
+                    // First request - use page-based pagination
+                    const uriSeverity = encodeURIComponent(element.name);
+                    const uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'pipeline').name);
+                    reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}&per_page=100`;
+                    requestParams = {
+                        headers: { authorization: authToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        page: pageNum
+                    };
+                }
+                
+                try {
+                    const result = await request(reqStr, requestParams);
+                    
+                    console.log(`  Page ${pageNum}: Found ${result.data.length} issues`);
+                    console.log(`  Headers: link=${result.headers.link}, x-ratelimit-remaining=${result.headers['x-ratelimit-remaining']}`);
+                    issuesForThisSeverity += result.data.length;
+                    
+                    for (const issue of result.data) {
+                        const title = issue.title || '';
+                        const issueNumber = issue.number;
+                        totalIssuesChecked++;
+                        
+                        // Check if this issue corresponds to a flaw that's still present
+                        const isStillPresent = flawData.findings.some(flaw => {
+                            const vid = createVeracodeFlawID(flaw);
+                            return title.includes(vid);
+                        });
+                        
+                        if (!isStillPresent) {
+                            console.log(`Closing GitHub issue ${issueNumber} - flaw no longer found in scan: "${title}"`);
+                            
+                            // Close the issue
+                            await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                                headers: { authorization: authToken },
+                                owner: options.githubOwner,
+                                repo: options.githubRepo,
+                                issue_number: issueNumber,
+                                state: 'closed',
+                                state_reason: 'completed'
+                            });
+                            
+                            // Add comment explaining closure
+                            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                                headers: { authorization: authToken },
+                                owner: options.githubOwner,
+                                repo: options.githubRepo,
+                                issue_number: issueNumber,
+                                body: 'This issue has been automatically closed by Veracode automation because the flaw is no longer present in the latest scan results.'
+                            });
+                            
+                            closedCount++;
+                            
+                            // Rate limiting
+                            if(waitTime > 0)
+                                await util.sleep(waitTime * 1000);
+                        } else {
+                            console.log(`Keeping GitHub issue ${issueNumber} open - flaw still present: "${title}"`);
+                        }
+                    }
+                    
+                    // Check if we need to loop - continue if there are more pages available
+                    // GitHub API uses Link header with rel="next" to indicate more pages
+                    const linkHeader = result.headers.link;
+                    const hasNextPage = linkHeader && linkHeader.includes('rel="next"');
+                    
+                    if (hasNextPage && result.data.length > 0) {
+                        // Extract the next URL from the Link header
+                        const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+                        if (nextMatch) {
+                            nextUrl = nextMatch[1];
+                            pageNum += 1;
+                        } else {
+                            done = true;
+                        }
+                    } else {
+                        done = true;
+                    }
+                } catch (error) {
+                    console.error(`Error processing issues for label ${element.name}:`, error.message);
+                    done = true;
+                }
+            }
+            
+            console.log(`  Total ${element.name} issues: ${issuesForThisSeverity}`);
+        }
+        
+        console.log(`Checked ${totalIssuesChecked} total GitHub issues`);
+        console.log(`Closed ${closedCount} GitHub issues that were no longer present in scan results`);
     }
 
     return index;

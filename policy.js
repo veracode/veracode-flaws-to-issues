@@ -9,6 +9,461 @@ const addVeracodeIssueComment = require('./issue_comment').addVeracodeIssueComme
 const core = require('@actions/core');
 const fs = require('fs');
 const path = require('path');
+const util = require('./util');
+
+// Helper function to get the most recent annotation
+function getMostRecentAnnotation(annotations) {
+    if (!annotations || annotations.length === 0) {
+        return null;
+    }
+    
+    // Sort by created date (most recent first)
+    const sortedAnnotations = annotations.sort((a, b) => new Date(b.created) - new Date(a.created));
+    return sortedAnnotations[0];
+}
+
+// Helper function to format annotation comment
+function formatAnnotationComment(annotation) {
+    // Use UTC time to avoid timezone conversion issues
+    const date = new Date(annotation.created).toISOString().replace('T', ' ').replace('Z', ' UTC');
+    // Map all non-APPROVED/REJECTED actions to PROPOSAL for better readability
+    const displayAction = (annotation.action !== 'APPROVED' && annotation.action !== 'REJECTED') ? 'PROPOSAL' : annotation.action;
+    let comment = `## Veracode Mitigation - ${displayAction}
+
+**Action:** ${annotation.action}
+**Comment:** ${annotation.comment}
+**Date:** ${date}
+**User:** ${annotation.user_name}`;
+    
+    // Add proposed mitigation message for actions that are neither APPROVED nor REJECTED
+    if (annotation.action !== 'APPROVED' && annotation.action !== 'REJECTED') {
+        comment += `
+
+> **Note:** This is a proposed mitigation, please talk to your security team for approval.`;
+    }
+    
+    return comment;
+}
+
+// Helper function to check if an annotation comment already exists
+async function annotationCommentExists(options, issue_number, annotation) {
+    try {
+        const response = await request('GET /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            per_page: 100
+        });
+        
+        const expectedComment = formatAnnotationComment(annotation);
+        
+        // Debug logging
+        console.log(`Checking for duplicate comment for annotation: ${annotation.action} by ${annotation.user_name} on ${annotation.created}`);
+        console.log(`Expected comment body length: ${expectedComment.length}`);
+        
+        // Check if any existing comment matches our expected comment
+        console.log(`Checking ${response.data.length} existing comments for duplicates...`);
+        console.log(`Expected comment body (first 200 chars):`);
+        console.log(expectedComment.substring(0, 200));
+        
+        const exists = response.data.some(comment => {
+            // First try exact match
+            let matches = comment.body === expectedComment;
+            
+            if (!matches) {
+                // If exact match fails, try comparing key fields for annotation comments
+                const isAnnotationComment = comment.body.includes('**User:** Julian Totzek-Hallhuber') || 
+                                           (comment.body.includes('**User:** ') && !comment.body.includes('**User:** Veracode Automation'));
+                
+                if (isAnnotationComment) {
+                    // Extract key fields for comparison
+                    const existingAction = comment.body.match(/\*\*Action:\*\* (.+)/)?.[1];
+                    const existingComment = comment.body.match(/\*\*Comment:\*\* (.+)/)?.[1];
+                    const existingUser = comment.body.match(/\*\*User:\*\* (.+)/)?.[1];
+                    const existingDate = comment.body.match(/\*\*Date:\*\* (.+)/)?.[1];
+                    
+                    const expectedAction = expectedComment.match(/\*\*Action:\*\* (.+)/)?.[1];
+                    const expectedCommentText = expectedComment.match(/\*\*Comment:\*\* (.+)/)?.[1];
+                    const expectedUser = expectedComment.match(/\*\*User:\*\* (.+)/)?.[1];
+                    const expectedDate = expectedComment.match(/\*\*Date:\*\* (.+)/)?.[1];
+                    
+                    console.log(`Field comparison for ${expectedAction}:`);
+                    console.log(`  Existing Action: "${existingAction}"`);
+                    console.log(`  Expected Action: "${expectedAction}"`);
+                    console.log(`  Existing Comment: "${existingComment}"`);
+                    console.log(`  Expected Comment: "${expectedCommentText}"`);
+                    console.log(`  Existing User: "${existingUser}"`);
+                    console.log(`  Expected User: "${expectedUser}"`);
+                    console.log(`  Existing Date: "${existingDate}"`);
+                    console.log(`  Expected Date: "${expectedDate}"`);
+                    
+                    // Compare key fields including annotation dates (not GitHub creation dates)
+                    matches = existingAction === expectedAction && 
+                             existingComment === expectedCommentText && 
+                             existingUser === expectedUser &&
+                             existingDate === expectedDate;
+                    
+                    console.log(`  Field comparison result: ${matches}`);
+                    
+                    if (matches) {
+                        console.log(`Found duplicate by field comparison: ${comment.id} posted at ${comment.created_at}`);
+                    }
+                }
+            }
+            
+            if (matches) {
+                console.log(`Found duplicate comment: ${comment.id} posted at ${comment.created_at}`);
+                console.log(`Duplicate comment body preview: ${comment.body.substring(0, 100)}...`);
+            }
+            
+            return matches;
+        });
+        
+        // Debug: Show all existing comment titles for comparison
+        console.log(`Existing comment titles:`);
+        response.data.forEach((comment, index) => {
+            const titleMatch = comment.body.match(/## Veracode Mitigation - (.+)/);
+            const title = titleMatch ? titleMatch[1] : 'No title found';
+            console.log(`  ${index + 1}. ${title} (${comment.created_at})`);
+        });
+        
+        console.log(`Duplicate check result: ${exists ? 'EXISTS' : 'NOT FOUND'}`);
+        return exists;
+    } catch (error) {
+        console.error(`Error checking for existing annotation comment: ${error.message}`);
+        return false; // If we can't check, assume it doesn't exist to avoid missing comments
+    }
+}
+
+// Helper function to process annotations and determine action
+function processAnnotations(annotations) {
+    if (!annotations || annotations.length === 0) {
+        return { action: 'none', annotations: [] };
+    }
+    
+    // Sort all annotations by created date (most recent first)
+    const sortedAnnotations = annotations.sort((a, b) => new Date(b.created) - new Date(a.created));
+    
+    // Find the most recent APPROVED or REJECTED annotation (these take precedence)
+    const mostRecentApprovedOrRejected = sortedAnnotations.find(ann => 
+        ann.action === 'APPROVED' || ann.action === 'REJECTED'
+    );
+    
+    // If we have an APPROVED or REJECTED annotation, use it to determine the action
+    if (mostRecentApprovedOrRejected) {
+        if (mostRecentApprovedOrRejected.action === 'APPROVED') {
+            return { 
+                action: 'close', 
+                annotations: sortedAnnotations,
+                mostRecent: mostRecentApprovedOrRejected
+            };
+        } else if (mostRecentApprovedOrRejected.action === 'REJECTED') {
+            return { 
+                action: 'reopen', 
+                annotations: sortedAnnotations,
+                mostRecent: mostRecentApprovedOrRejected
+            };
+        }
+    }
+    
+    // If no APPROVED or REJECTED annotations, use the most recent annotation for update
+    const mostRecent = sortedAnnotations[0];
+    return { 
+        action: 'update', 
+        annotations: sortedAnnotations,
+        mostRecent: mostRecent
+    };
+}
+
+// Process existing issue with annotations (new workflow)
+async function processExistingIssueWithAnnotations(flaw, issue_number, issueState, options, waitTime) {
+    // Check if flaw is mitigated first
+    if(flaw.finding_status.resolution_status == 'APPROVED') {
+        console.log(`Flaw ${flaw.issue_id} is mitigated, closing existing issue ${issue_number}`);
+        
+        // Close the issue
+        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            state: 'closed',
+            state_reason: 'completed'
+        });
+        
+        // Find the most recent APPROVED annotation to use its data
+        const approvedAnnotation = flaw.annotations?.find(ann => ann.action === 'APPROVED');
+        
+        // Add comment explaining closure
+        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            body: `## Veracode Mitigation - APPROVED
+
+**Action:** APPROVED
+**Comment:** ${approvedAnnotation?.comment || 'Flaw has been mitigated and approved'}
+**Date:** ${approvedAnnotation ? new Date(approvedAnnotation.created).toISOString().replace('T', ' ').replace('Z', ' UTC') : new Date(flaw.finding_status.last_seen_date).toISOString().replace('T', ' ').replace('Z', ' UTC')}
+**User:** ${approvedAnnotation?.user_name || 'Veracode Automation'}
+
+> **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`
+        });
+        
+        return;
+    }
+    
+    const annotationResult = processAnnotations(flaw.annotations);
+    console.log(`Processing annotations for flaw ${flaw.issue_id}: ${annotationResult.action} (${flaw.annotations.length} annotations)`);
+    
+    if (annotationResult.action === 'close') {
+        console.log(`Closing issue ${issue_number} - most recent annotation is APPROVED`);
+        
+        // Close the issue
+        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            state: 'closed',
+            state_reason: 'completed'
+        });
+        
+        // Add comments for all annotations (if not already exists)
+        for (const annotation of annotationResult.annotations) {
+            console.log(`Processing annotation: ${annotation.action} by ${annotation.user_name} on ${annotation.created}`);
+            const commentExists = await annotationCommentExists(options, issue_number, annotation);
+            if (!commentExists) {
+                console.log(`✅ Adding NEW comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issue_number,
+                    body: formatAnnotationComment(annotation)
+                });
+            } else {
+                console.log(`⏭️  Skipping DUPLICATE comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+            }
+        }
+        
+    } else if (annotationResult.action === 'reopen') {
+        console.log(`Reopening issue ${issue_number} - most recent annotation is REJECTED`);
+        
+        // Reopen the issue if it's closed
+        if (issueState === 'closed') {
+            await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issue_number,
+                state: 'open'
+            });
+        }
+        
+        // Add comments for all annotations (if not already exists)
+        for (const annotation of annotationResult.annotations) {
+            console.log(`Processing annotation: ${annotation.action} by ${annotation.user_name} on ${annotation.created}`);
+            const commentExists = await annotationCommentExists(options, issue_number, annotation);
+            if (!commentExists) {
+                console.log(`✅ Adding NEW comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issue_number,
+                    body: formatAnnotationComment(annotation)
+                });
+            } else {
+                console.log(`⏭️  Skipping DUPLICATE comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+            }
+        }
+        
+    } else if (annotationResult.action === 'update') {
+        console.log(`Updating issue ${issue_number} - adding annotation comments`);
+        
+        // Add comments for all annotations (most recent first)
+        for (const annotation of annotationResult.annotations) {
+            console.log(`Processing annotation: ${annotation.action} by ${annotation.user_name} on ${annotation.created}`);
+            // Check if this annotation comment already exists
+            const commentExists = await annotationCommentExists(options, issue_number, annotation);
+            
+            if (!commentExists) {
+                console.log(`✅ Adding NEW comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issue_number,
+                    body: formatAnnotationComment(annotation)
+                });
+                
+                // Rate limiting
+                if(waitTime > 0) {
+                    await util.sleep(waitTime * 1000);
+                }
+            } else {
+                console.log(`⏭️  Skipping DUPLICATE comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+            }
+        }
+    }
+}
+
+// Process existing issue without annotations (original workflow)
+async function processExistingIssueOriginal(flaw, issue_number, issueState, options) {
+    // Check if flaw is mitigated first
+    if(flaw.finding_status.resolution_status == 'APPROVED') {
+        console.log(`Flaw ${flaw.issue_id} is mitigated, closing existing issue ${issue_number}`);
+        
+        // Close the issue
+        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            state: 'closed',
+            state_reason: 'completed'
+        });
+        
+        // Find the most recent APPROVED annotation to use its data
+        const approvedAnnotation = flaw.annotations?.find(ann => ann.action === 'APPROVED');
+        
+        // Add comment explaining closure
+        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            body: `## Veracode Mitigation - APPROVED
+
+**Action:** APPROVED
+**Comment:** ${approvedAnnotation?.comment || 'Flaw has been mitigated and approved'}
+**Date:** ${approvedAnnotation ? new Date(approvedAnnotation.created).toISOString().replace('T', ' ').replace('Z', ' UTC') : new Date(flaw.finding_status.last_seen_date).toISOString().replace('T', ' ').replace('Z', ' UTC')}
+**User:** ${approvedAnnotation?.user_name || 'Veracode Automation'}
+
+> **Note:** This issue has been automatically closed by Veracode automation because the flaw has been mitigated (APPROVED status).`
+        });
+        
+        return;
+    }
+    
+    if ( options.debug == "true" ){
+        core.info('#### DEBUG START ####')
+        core.info('policy.js')
+        console.log("isPr?: "+options.isPR)
+        core.info('#### DEBUG END ####')
+    }
+    if ( options.isPR >= 1 && issueState == "open" ){
+        console.log('We are on a PR, need to link this issue to this PR')
+        pr_link = `Veracode issue link to PR: https://github.com/`+options.githubOwner+`/`+options.githubRepo+`/pull/`+options.pr_commentID
+
+        let issueComment = {
+            'issue_number': issue_number,
+            'pr_link': pr_link
+        }; 
+
+        await addVeracodeIssueComment(options, issueComment)
+        .catch( error => {
+            if(error instanceof util.ApiError) {
+                throw error;
+            } else {
+                //console.error(error.message);
+                throw error; 
+            }
+        })
+    }
+    else if (issueState == "closed"){
+        console.log('GitHub issue is closed no need to update.')
+    }
+    else {
+        console.log('GitHub issue is open but not on a PR, no need to update.')
+    }
+}
+
+// Process new issue with annotations
+async function processNewIssueWithAnnotations(flaw, issueResult, options, waitTime) {
+    const annotationResult = processAnnotations(flaw.annotations);
+    console.log(`Processing annotations for new issue ${issueResult}: ${annotationResult.action} (${flaw.annotations.length} annotations)`);
+    
+    if (annotationResult.action === 'close') {
+        console.log(`Closing newly created issue ${issueResult} - most recent annotation is APPROVED`);
+        
+        // Close the issue
+        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issueResult,
+            state: 'closed',
+            state_reason: 'completed'
+        });
+        
+        // Add comments for all annotations (if not already exists)
+        for (const annotation of annotationResult.annotations) {
+            const commentExists = await annotationCommentExists(options, issueResult, annotation);
+            if (!commentExists) {
+                console.log(`Adding comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issueResult,
+                    body: formatAnnotationComment(annotation)
+                });
+            } else {
+                console.log(`Skipping duplicate comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+            }
+        }
+        
+    } else if (annotationResult.action === 'reopen') {
+        console.log(`Newly created issue ${issueResult} - most recent annotation is REJECTED (keeping open)`);
+        
+        // Add comments for all annotations (if not already exists)
+        for (const annotation of annotationResult.annotations) {
+            const commentExists = await annotationCommentExists(options, issueResult, annotation);
+            if (!commentExists) {
+                console.log(`Adding comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issueResult,
+                    body: formatAnnotationComment(annotation)
+                });
+            } else {
+                console.log(`Skipping duplicate comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+            }
+        }
+        
+    } else if (annotationResult.action === 'update') {
+        console.log(`Adding annotation comments to newly created issue ${issueResult}`);
+        
+        // Add comments for all annotations (most recent first)
+        for (const annotation of annotationResult.annotations) {
+            // Check if this annotation comment already exists
+            const commentExists = await annotationCommentExists(options, issueResult, annotation);
+            
+            if (!commentExists) {
+                console.log(`Adding comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issueResult,
+                    body: formatAnnotationComment(annotation)
+                });
+                
+                // Rate limiting
+                if(waitTime > 0) {
+                    await util.sleep(waitTime * 1000);
+                }
+            } else {
+                console.log(`Skipping duplicate comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+            }
+        }
+    }
+}
 
 // sparse array, element = true if the flaw exists, undefined otherwise
 var existingFlaws = [];
@@ -63,7 +518,7 @@ async function getAllVeracodeIssues(options) {
 
         let uriSeverity = encodeURIComponent(element.name);
         let uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'policy').name);
-        let reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=open&page={page}`
+        let reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=all&page={page}`
         //let reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriName},${uriType}&state=open&page={page}&per_page={pageMax}`
 
         while(!done) {
@@ -129,7 +584,7 @@ function getIssueState(vid) {
 
 
 
-async function processPolicyFlaws(options, flawData) {
+async function processPolicyFlaws(options, flawData, autoCloseFindings) {
 
     const util = require('./util');
 
@@ -148,47 +603,24 @@ async function processPolicyFlaws(options, flawData) {
         let issueState = getIssueState(vid)
         console.debug(`processing flaw ${flaw.issue_id}, VeracodeID: ${vid}`);
 
-        // check for mitigation
-        if(flaw.finding_status.resolution_status == 'APPROVED') {
-            console.log('Flaw mitigated, skipping import');
+        // check for duplicate
+        if(issueExists(vid)) {
+            console.log('Issue already exists, processing...');
+            
+            // Check if this flaw has annotations
+            if (flaw.annotations && flaw.annotations.length > 0) {
+                // Use annotation-based workflow
+                await processExistingIssueWithAnnotations(flaw, issue_number, issueState, options, waitTime);
+            } else {
+                // Use original workflow
+                await processExistingIssueOriginal(flaw, issue_number, issueState, options);
+            }
             continue;
         }
 
-        // check for duplicate
-        if(issueExists(vid)) {
-            console.log('Issue already exists, skipping import');
-            if ( options.debug == "true" ){
-                core.info('#### DEBUG START ####')
-                core.info('policy.js')
-                console.log("isPr?: "+options.isPR)
-                core.info('#### DEBUG END ####')
-            }
-            if ( options.isPR >= 1 && issueState == "open" ){
-                console.log('We are on a PR, need to link this issue to this PR')
-                pr_link = `Veracode issue link to PR: https://github.com/`+options.githubOwner+`/`+options.githubRepo+`/pull/`+options.pr_commentID
-
-                let issueComment = {
-                    'issue_number': issue_number,
-                    'pr_link': pr_link
-                }; 
-    
-    
-                await addVeracodeIssueComment(options, issueComment)
-                .catch( error => {
-                    if(error instanceof util.ApiError) {
-                        throw error;
-                    } else {
-                        //console.error(error.message);
-                        throw error; 
-                    }
-                })
-            }
-            else{
-                console.log('GitHub issue is closed no need to update.')
-            }
-
-
-    
+        // check for mitigation (only for new issues)
+        if(flaw.finding_status.resolution_status == 'APPROVED') {
+            console.log('Flaw mitigated, skipping import');
             continue;
         }
 
@@ -337,7 +769,7 @@ old rewrite path */
 
         console.log('Issue: '+JSON.stringify(issue))
         
-        await addVeracodeIssue(options, issue)
+        const issueResult = await addVeracodeIssue(options, issue)
         .catch( error => {
             if(error instanceof util.ApiError) {
 
@@ -359,7 +791,13 @@ old rewrite path */
                 //console.error(error.message);
                 throw error; 
             }
-        })
+        });
+
+        // Handle annotations for newly created issues
+        if (flaw.annotations && flaw.annotations.length > 0) {
+            const issueNumber = await issueResult;
+            await processNewIssueWithAnnotations(flaw, issueNumber, options, waitTime);
+        }
 
         console.log('My Issue Nmbuer: '+addVeracodeIssue.issue_numnber)
 
@@ -370,6 +808,129 @@ old rewrite path */
         // rate limiter, per GitHub: https://docs.github.com/en/rest/guides/best-practices-for-integrators
         if(waitTime > 0)
             await util.sleep(waitTime * 1000);
+    }
+
+    // Close issues that are no longer present in the scan results
+    if (autoCloseFindings) {
+        console.log(`\nChecking for GitHub issues to close (flaws not found in current scan)...`);
+        console.log(`Current scan has ${flawData._embedded.findings.length} flaws`);
+        let closedCount = 0;
+        let totalIssuesChecked = 0;
+        
+        // Get all existing open issues with Veracode tags
+        const { request } = require('@octokit/request');
+        const authToken = 'token ' + options.githubToken;
+        
+        // Query for ALL Veracode issues regardless of severity, not just current scan severities
+        for(const element of label.flawLabels) {
+            let done = false;
+            let pageNum = 1;
+            let issuesForThisSeverity = 0;
+            let nextUrl = null;
+            
+            console.log(`\nChecking ${element.name} issues...`);
+            
+            while(!done) {
+                let reqStr;
+                let requestParams;
+                
+                if (nextUrl) {
+                    // Use the next URL from the Link header for cursor-based pagination
+                    reqStr = nextUrl;
+                    requestParams = {
+                        headers: { authorization: authToken }
+                    };
+                } else {
+                    // First request - use page-based pagination
+                    const uriSeverity = encodeURIComponent(element.name);
+                    const uriType = encodeURIComponent(label.otherLabels.find( val => val.id === 'policy').name);
+                    reqStr = `GET /repos/{owner}/{repo}/issues?labels=${uriSeverity},${uriType}&state=all&page={page}&per_page=100`;
+                    requestParams = {
+                        headers: { authorization: authToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        page: pageNum
+                    };
+                }
+                
+                try {
+                    const result = await request(reqStr, requestParams);
+                    
+                    console.log(`  Page ${pageNum}: Found ${result.data.length} issues`);
+                    console.log(`  Headers: link=${result.headers.link}, x-ratelimit-remaining=${result.headers['x-ratelimit-remaining']}`);
+                    issuesForThisSeverity += result.data.length;
+                    
+                    for (const issue of result.data) {
+                        const title = issue.title || '';
+                        const issueNumber = issue.number;
+                        totalIssuesChecked++;
+                        
+                        // Check if this issue corresponds to a flaw that's still present
+                        const isStillPresent = flawData._embedded.findings.some(flaw => {
+                            const vid = createVeracodeFlawID(flaw);
+                            return title.includes(vid);
+                        });
+                        
+                        if (!isStillPresent && issue.state === 'open') {
+                            console.log(`Closing GitHub issue ${issueNumber} - flaw no longer found in scan: "${title}"`);
+                            
+                            // Close the issue
+                            await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                                headers: { authorization: authToken },
+                                owner: options.githubOwner,
+                                repo: options.githubRepo,
+                                issue_number: issueNumber,
+                                state: 'closed',
+                                state_reason: 'completed'
+                            });
+                            
+                            // Add comment explaining closure
+                            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                                headers: { authorization: authToken },
+                                owner: options.githubOwner,
+                                repo: options.githubRepo,
+                                issue_number: issueNumber,
+                                body: 'This issue has been automatically closed by Veracode automation because the flaw is no longer present in the latest scan results.'
+                            });
+                            
+                            closedCount++;
+                            
+                            // Rate limiting
+                            if(waitTime > 0)
+                                await util.sleep(waitTime * 1000);
+                        } else {
+                            console.log(`Keeping GitHub issue ${issueNumber} open - flaw still present: "${title}"`);
+                        }
+                    }
+                    
+                    // Check if we need to loop - continue if there are more pages available
+                    // GitHub API uses Link header with rel="next" to indicate more pages
+                    const linkHeader = result.headers.link;
+                    const hasNextPage = linkHeader && linkHeader.includes('rel="next"');
+                    
+                    if (hasNextPage && result.data.length > 0) {
+                        // Extract the next URL from the Link header
+                        const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/);
+                        if (nextMatch) {
+                            nextUrl = nextMatch[1];
+                            pageNum += 1;
+                        } else {
+                            done = true;
+                        }
+                    } else {
+                        done = true;
+                    }
+                } catch (error) {
+                    console.error(`Error processing issues for label ${element.name}:`, error.message);
+                    done = true;
+                }
+            }
+            
+            console.log(`  Total ${element.name} issues: ${issuesForThisSeverity}`);
+        }
+        
+        console.log(`Checked ${totalIssuesChecked} total GitHub issues`);
+        console.log(`Closed ${closedCount} GitHub issues that were no longer present in scan results`);
     }
 
     return index;

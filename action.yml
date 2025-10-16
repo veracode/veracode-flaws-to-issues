@@ -32,6 +32,10 @@ inputs:
   fail_build:
     description: fail pipeline upon findings (true | false)
     required: false
+  autoCloseFindings:
+    description: 'Automatically close issues/work items that are no longer present in scan results (true | false)'
+    required: false
+    default: 'false'
   debug:
     description: enable debug logging
     required: false

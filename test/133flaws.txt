@@ -1,0 +1,303 @@
+Run veracode/veracode-flaws-to-issues@ADO_workitems
+  with:
+    scan-results-json: /tmp/policy_flaws.json
+    autoCloseFindings: true
+    debug: true
+    dts_type: GITHUB
+    github-token: ***
+    wait-time: 2
+    ADO_WORK_ITEM_TYPE: Issue
+  
+dts_type: GITHUB
+resultsFile: /tmp/policy_flaws.json
+waitTime: 2
+source_base_path_1: 
+source_base_path_2: 
+source_base_path_3: 
+commit_hash: 07294d071920733754673b8978a5e6d26baa73af
+autoCloseFindings: true
+debug: true
+owner = julz0815
+repo = test-action
+check if we run on a pull request
+#### DEBUG START ####
+index.js
+refs/heads/main
+{"DOTNET_SKIP_FIRST_TIME_EXPERIENCE":"1","ANDROID_SDK_ROOT":"/usr/local/lib/android/sdk","ENABLE_RUNNER_TRACING":"true","XDG_RUNTIME_DIR":"/run/user/1001","ANDROID_NDK_HOME":"/usr/local/lib/android/sdk/ndk/27.3.13750724","AZURE_EXTENSION_DIR":"/opt/az/azcliextensions","NVM_DIR":"/home/runner/.nvm","MEMORY_PRESSURE_WATCH":"/sys/fs/cgroup/system.slice/hosted-compute-agent.service/memory.pressure","GITHUB_ACTIONS":"true","GOROOT_1_24_X64":"/opt/hostedtoolcache/go/1.24.7/x64","ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE":"/opt/actionarchivecache","RUNNER_TRACKING_ID":"github_0a6a189c-0a74-4973-b3b4-ae222f8e9fb2","GECKOWEBDRIVER":"/usr/local/share/gecko_driver","AGENT_TOOLSDIRECTORY":"/opt/hostedtoolcache","SELENIUM_JAR_PATH":"/usr/share/java/selenium-server.jar","ANDROID_NDK":"/usr/local/lib/android/sdk/ndk/27.3.13750724","MEMORY_PRESSURE_WRITE":"c29tZSAyMDAwMDAgMjAwMDAwMAA=","ImageVersion":"20250929.60.1","ANDROID_HOME":"/usr/local/lib/android/sdk","CONDA":"/usr/share/miniconda","SHELL":"/bin/bash","CHROMEWEBDRIVER":"/u
+#### DEBUG END ####
+#### DEBUG START ####
+index.js
+isPR?: undefined
+#### DEBUG END ####
+We don't run on a PR
+Processing file: /tmp/policy_flaws.json
+This is a policy scan
+Flaws found to import!
+Importing policy flaws into  julz0815/test-action.  2 seconds between imports (to handle GitHub rate limiting)
+Creating VeracodeFlaw labels
+VeracodeFlaw label "VeracodeFlaw: Very High" probably exists, (Ignored error: Validation Failed: {"resource":"Label","code":"already_exists","field":"name"})
+VeracodeFlaw label "VeracodeFlaw: High" probably exists, (Ignored error: Validation Failed: {"resource":"Label","code":"already_exists","field":"name"})
+VeracodeFlaw label "VeracodeFlaw: Medium" probably exists, (Ignored error: Validation Failed: {"resource":"Label","code":"already_exists","field":"name"})
+VeracodeFlaw label "VeracodeFlaw: Low" probably exists, (Ignored error: Validation Failed: {"resource":"Label","code":"already_exists","field":"name"})
+VeracodeFlaw label "VeracodeFlaw: Very Low" probably exists, (Ignored error: Validation Failed: {"resource":"Label","code":"already_exists","field":"name"})
+VeracodeFlaw label "VeracodeFlaw: Informational" probably exists, (Ignored error: Validation Failed: {"resource":"Label","code":"already_exists","field":"name"})
+VeracodeFlaw label "Veracode Pipeline Scan" probably exists, (Ignored error: Validation Failed: {"resource":"Label","code":"already_exists","field":"name"})
+VeracodeFlaw label "Veracode Policy Scan" probably exists, (Ignored error: Validation Failed: {"resource":"Label","code":"already_exists","field":"name"})
+#### DEBUG START ####
+importer.js
+isPr?: undefined
+#### DEBUG END ####
+Getting list of existing "VeracodeFlaw: Very High" issues
+0 flaw(s) found, (result code: 200)
+Getting list of existing "VeracodeFlaw: High" issues
+0 flaw(s) found, (result code: 200)
+Getting list of existing "VeracodeFlaw: Medium" issues
+0 flaw(s) found, (result code: 200)
+Getting list of existing "VeracodeFlaw: Low" issues
+0 flaw(s) found, (result code: 200)
+Getting list of existing "VeracodeFlaw: Very Low" issues
+0 flaw(s) found, (result code: 200)
+Getting list of existing "VeracodeFlaw: Informational" issues
+0 flaw(s) found, (result code: 200)
+Processing input file: "/tmp/policy_flaws.json" with 133 flaws to process.
+processing flaw 1, VeracodeID: [VID:1]
+Flaw mitigated, skipping import
+processing flaw 2, VeracodeID: [VID:2]
+Flaw mitigated, skipping import
+processing flaw 3, VeracodeID: [VID:3]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/controller/ToolsController.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":78,"name":"Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"},"lineNumber":91,"file":"ToolsController.java"},"title":"Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') ('Command or Argument Injection') [VID:3]","label":"Veracode Policy Scan","severity":5,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/controller/ToolsController.java#L86-L96\n\n**Filename:** ToolsController.java\n\n**Line:** 91\n\n**CWE:** 78 (Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') ('Command or Argument Injection'))\n\n<span>This call to java.lang.Runtime.exec() contains a command injection flaw.  The argument to the function is constructed using untrusted input.  If an attacker is allowed to specify all or part of the command, it may be possible to execute commands on the server with the privileges of the executing 
+Adding Issue for Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') ('Command or Argument Injection') [VID:3]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 4, VeracodeID: [VID:4]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/controller/ToolsController.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":78,"name":"Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"},"lineNumber":94,"file":"ToolsController.java"},"title":"Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') ('Command or Argument Injection') [VID:4]","label":"Veracode Policy Scan","severity":5,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/controller/ToolsController.java#L89-L99\n\n**Filename:** ToolsController.java\n\n**Line:** 94\n\n**CWE:** 78 (Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') ('Command or Argument Injection'))\n\n<span>This call to java.lang.Runtime.exec() contains a command injection flaw.  The argument to the function is constructed using untrusted input.  If an attacker is allowed to specify all or part of the command, it may be possible to execute commands on the server with the privileges of the executing 
+Adding Issue for Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection') ('Command or Argument Injection') [VID:4]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 5, VeracodeID: [VID:5]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/controller/UserController.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":89,"name":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"},"lineNumber":167,"file":"UserController.java"},"title":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:5]","label":"Veracode Policy Scan","severity":4,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/controller/UserController.java#L162-L172\n\n**Filename:** UserController.java\n\n**Line:** 167\n\n**CWE:** 89 (Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection'))\n\n<span>This database query contains a SQL injection flaw.  The call to java.sql.Statement.executeQuery() constructs a dynamic SQL query using a variable derived from untrusted input.  An attacker could exploit this flaw to execute arbitrary SQL queries against the database. The first argument to executeQuery() contains tainted data from the variable s
+Adding Issue for Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:5]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 6, VeracodeID: [VID:6]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/controller/UserController.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":89,"name":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"},"lineNumber":252,"file":"UserController.java"},"title":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:6]","label":"Veracode Policy Scan","severity":4,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/controller/UserController.java#L247-L257\n\n**Filename:** UserController.java\n\n**Line:** 252\n\n**CWE:** 89 (Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection'))\n\n<span>This database query contains a SQL injection flaw.  The call to java.sql.Statement.executeQuery() constructs a dynamic SQL query using a variable derived from untrusted input.  An attacker could exploit this flaw to execute arbitrary SQL queries against the database. The first argument to executeQuery() contains tainted data from the variable s
+Adding Issue for Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:6]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 7, VeracodeID: [VID:7]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/controller/UserController.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":89,"name":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"},"lineNumber":317,"file":"UserController.java"},"title":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:7]","label":"Veracode Policy Scan","severity":4,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/controller/UserController.java#L312-L322\n\n**Filename:** UserController.java\n\n**Line:** 317\n\n**CWE:** 89 (Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection'))\n\n<span>This database query contains a SQL injection flaw.  The call to java.sql.Statement.executeQuery() constructs a dynamic SQL query using a variable derived from untrusted input.  An attacker could exploit this flaw to execute arbitrary SQL queries against the database. The first argument to executeQuery() contains tainted data from the variable s
+Adding Issue for Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:7]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 8, VeracodeID: [VID:8]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/controller/UserController.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":89,"name":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"},"lineNumber":385,"file":"UserController.java"},"title":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:8]","label":"Veracode Policy Scan","severity":4,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/controller/UserController.java#L380-L390\n\n**Filename:** UserController.java\n\n**Line:** 385\n\n**CWE:** 89 (Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection'))\n\n<span>This database query contains a SQL injection flaw.  The call to java.sql.Statement.execute() constructs a dynamic SQL query using a variable derived from untrusted input.  An attacker could exploit this flaw to execute arbitrary SQL queries against the database. The first argument to execute() contains tainted data from the variable query. The 
+Adding Issue for Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:8]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 9, VeracodeID: [VID:9]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/controller/UserController.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":89,"name":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"},"lineNumber":496,"file":"UserController.java"},"title":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:9]","label":"Veracode Policy Scan","severity":4,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/controller/UserController.java#L491-L501\n\n**Filename:** UserController.java\n\n**Line:** 496\n\n**CWE:** 89 (Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection'))\n\n<span>This database query contains a SQL injection flaw.  The call to java.sql.Statement.executeQuery() constructs a dynamic SQL query using a variable derived from untrusted input.  An attacker could exploit this flaw to execute arbitrary SQL queries against the database. The first argument to executeQuery() contains tainted data from the variable s
+Adding Issue for Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:9]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 10, VeracodeID: [VID:10]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/controller/UserController.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":89,"name":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"},"lineNumber":507,"file":"UserController.java"},"title":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:10]","label":"Veracode Policy Scan","severity":4,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/controller/UserController.java#L502-L512\n\n**Filename:** UserController.java\n\n**Line:** 507\n\n**CWE:** 89 (Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection'))\n\n<span>This database query contains a SQL injection flaw.  The call to java.sql.PreparedStatement.executeQuery() constructs a dynamic SQL query using a variable derived from untrusted input.  An attacker could exploit this flaw to execute arbitrary SQL queries against the database. executeQuery() was called on the myInfo object, which contains tainte
+Adding Issue for Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:10]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 11, VeracodeID: [VID:11]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/controller/BlabController.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":89,"name":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"},"lineNumber":490,"file":"BlabController.java"},"title":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:11]","label":"Veracode Policy Scan","severity":4,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/controller/BlabController.java#L485-L495\n\n**Filename:** BlabController.java\n\n**Line:** 490\n\n**CWE:** 89 (Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection'))\n\n<span>This database query contains a SQL injection flaw.  The call to java.sql.PreparedStatement.executeQuery() constructs a dynamic SQL query using a variable derived from untrusted input.  An attacker could exploit this flaw to execute arbitrary SQL queries against the database. executeQuery() was called on the blabberQuery object, which contains 
+Adding Issue for Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:11]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 12, VeracodeID: [VID:12]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/commands/RemoveAccountCommand.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":89,"name":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"},"lineNumber":40,"file":"RemoveAccountCommand.java"},"title":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:12]","label":"Veracode Policy Scan","severity":4,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/commands/RemoveAccountCommand.java#L35-L45\n\n**Filename:** RemoveAccountCommand.java\n\n**Line:** 40\n\n**CWE:** 89 (Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection'))\n\n<span>This database query contains a SQL injection flaw.  The call to java.sql.Statement.executeQuery() constructs a dynamic SQL query using a variable derived from untrusted input.  An attacker could exploit this flaw to execute arbitrary SQL queries against the database. The first argument to executeQuery() contains tainted data from t
+Adding Issue for Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:12]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 13, VeracodeID: [VID:13]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/commands/RemoveAccountCommand.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Issue: {"flaw":{"cwe":{"id":89,"name":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection')"},"lineNumber":47,"file":"RemoveAccountCommand.java"},"title":"Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:13]","label":"Veracode Policy Scan","severity":4,"body":"https://github.com/julz0815/test-action/blob/07294d071920733754673b8978a5e6d26baa73af/com/veracode/verademo/commands/RemoveAccountCommand.java#L42-L52\n\n**Filename:** RemoveAccountCommand.java\n\n**Line:** 47\n\n**CWE:** 89 (Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection'))\n\n<span>This database query contains a SQL injection flaw.  The call to java.sql.Statement.execute() constructs a dynamic SQL query using a variable derived from untrusted input.  An attacker could exploit this flaw to execute arbitrary SQL queries against the database. The first argument to execute() contains tainted data from the variabl
+Adding Issue for Improper Neutralization of Special Elements used in an SQL Command ('SQL Injection') ('SQL Injection') [VID:13]
+Issue successfully created, result: 201
+#### DEBUG START ####
+issues.js
+isPr?: undefined
+#### DEBUG END ####
+My Issue Nmbuer: undefined
+processing flaw 14, VeracodeID: [VID:14]
+Current Directory: /home/runner/work/test-action/test-action
+Filename: com/veracode/verademo/commands/RemoveAccountCommand.java
+File not found in the current directory or its subdirectories.
+#### DEBUG START ####
+policy.js
+isPr?: undefined
+#### DEBUG END ####
+Keeping GitHub issue 1536 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:161]"
+Keeping GitHub issue 1535 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:159]"
+Keeping GitHub issue 1534 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:154]"
+Keeping GitHub issue 1533 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:171]"
+Keeping GitHub issue 1532 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:162]"
+Keeping GitHub issue 1531 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:173]"
+Keeping GitHub issue 1530 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:175]"
+Keeping GitHub issue 1529 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:157]"
+Keeping GitHub issue 1528 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:174]"
+Keeping GitHub issue 1527 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:166]"
+Keeping GitHub issue 1526 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:167]"
+Keeping GitHub issue 1525 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:180]"
+Keeping GitHub issue 1524 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:155]"
+Keeping GitHub issue 1523 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:178]"
+Keeping GitHub issue 1522 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:179]"
+Keeping GitHub issue 1521 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:158]"
+Keeping GitHub issue 1520 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:172]"
+Keeping GitHub issue 1519 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:165]"
+Keeping GitHub issue 1518 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:170]"
+Keeping GitHub issue 1517 open - flaw still present: "Use of Hard-coded Credentials ('Credentials Management') [VID:156]"
+Keeping GitHub issue 1516 open - flaw still present: "Use of a Broken or Risky Cryptographic Algorithm ('Cryptographic Issues') [VID:49]"
+Keeping GitHub issue 1515 open - flaw still present: "External Control of File Name or Path ('Directory Traversal') [VID:48]"
+Keeping GitHub issue 1514 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:47]"
+Keeping GitHub issue 1513 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:46]"
+Keeping GitHub issue 1512 open - flaw still present: "Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Request/Response Splitting') ('CRLF Injection') [VID:45]"
+Keeping GitHub issue 1511 open - flaw still present: "Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Request/Response Splitting') ('CRLF Injection') [VID:44]"
+Keeping GitHub issue 1510 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:43]"
+Keeping GitHub issue 1509 open - flaw still present: "External Control of File Name or Path ('Directory Traversal') [VID:42]"
+Keeping GitHub issue 1508 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:41]"
+Keeping GitHub issue 1507 open - flaw still present: "External Control of File Name or Path ('Directory Traversal') [VID:40]"
+Keeping GitHub issue 1506 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:39]"
+Keeping GitHub issue 1505 open - flaw still present: "Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Request/Response Splitting') ('CRLF Injection') [VID:38]"
+Keeping GitHub issue 1504 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:37]"
+Keeping GitHub issue 1503 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:36]"
+Keeping GitHub issue 1502 open - flaw still present: "Improper Neutralization of CRLF Sequences ('CRLF Injection') ('CRLF Injection') [VID:35]"
+Keeping GitHub issue 1501 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:34]"
+Keeping GitHub issue 1500 open - flaw still present: "Improper Neutralization of Script-Related HTML Tags in a Web Page (Basic XSS) ('Cross-Site Scripting (XSS)') [VID:33]"
+Keeping GitHub issue 1499 open - flaw still present: "Improper Neutralization of Script-Related HTML Tags in a Web Page (Basic XSS) ('Cross-Site Scripting (XSS)') [VID:32]"
+Keeping GitHub issue 1498 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:31]"
+Keeping GitHub issue 1497 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:30]"
+Keeping GitHub issue 1496 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:29]"
+Keeping GitHub issue 1495 open - flaw still present: "External Control of File Name or Path ('Directory Traversal') [VID:28]"
+Keeping GitHub issue 1494 open - flaw still present: "Improper Output Neutralization for Logs ('CRLF Injection') [VID:27]"
+Keeping GitHub issue 1493 open - flaw still present: "Improper Neutralization of CRLF Sequences in HTTP Headers ('HTTP Request/Response Splitting') ('CRLF Injection') [VID:26]"
+Keeping GitHub issue 1492 open - flaw still present: "URL Redirection to Untrusted Site ('Open Redirect') ('Insufficient Input Validation') [VID:25]"
+Keeping GitHub issue 1491 open - flaw still present: "URL Redirection to Untrusted Site ('Open Redirect') ('Insufficient Input Validation') [VID:24]"
+Keeping GitHub issue 1490 open - flaw still present: "Use of Hard-coded Password ('Credentials Management') [VID:23]"
+Keeping GitHub issue 1489 open - flaw still present: "Use of Hard-coded Password ('Credentials Management') [VID:22]"
+Keeping GitHub issue 1488 open - flaw still present: "Use of a Broken or Risky Cryptographic Algorithm ('Cryptographic Issues') [VID:21]"
+Keeping GitHub issue 1487 open - flaw still present: "Deserialization of Untrusted Data ('Encapsulation') [VID:19]"
+Checked 131 total GitHub issues
+Closed 0 GitHub issues that were no longer present in scan results
+Done.  133 flaws processed.

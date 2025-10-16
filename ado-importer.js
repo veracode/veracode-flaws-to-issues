@@ -15,7 +15,8 @@ async function importFlawsToADO(params) {
         source_base_path_3,
         commit_hash,
         fail_build,
-        debug
+        debug,
+        autoCloseFindings
     } = params;
 
     // Read and parse the results file
@@ -30,9 +31,27 @@ async function importFlawsToADO(params) {
         console.log(`Work Item Type: ${adoWorkItemType}`);
     }
 
+    // Create base ADO client with common headers
     const adoClient = axios.create({
         baseURL: baseUrl,
         headers: {
+            'Authorization': `Bearer ${adoPat}`
+        }
+    });
+    
+    // Create specialized clients for different operations
+    const adoQueryClient = axios.create({
+        baseURL: baseUrl,
+        headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${adoPat}`
+        }
+    });
+    
+    const adoPatchClient = axios.create({
+        baseURL: baseUrl,
+        headers: {
+            'Content-Type': 'application/json-patch+json',
             'Authorization': `Bearer ${adoPat}`
         }
     });
@@ -66,7 +85,7 @@ async function importFlawsToADO(params) {
     console.log(`Importing ${scanType} flaws into Azure DevOps. ${waitTime} seconds between imports (to handle rate limiting)`);
 
     // Get existing work items to check for duplicates
-    const existingWorkItems = await getExistingWorkItems(adoClient, adoOrg, adoProject, debug);
+    const existingWorkItems = await getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProject, debug);
     console.log(`Found ${existingWorkItems.length} existing work items to check against`);
 
     // Track which work items are still active (not closed)
@@ -78,6 +97,27 @@ async function importFlawsToADO(params) {
 
     // Track which flaws we've processed to identify work items that should be closed
     const processedFlawIds = new Set();
+    
+    // Initialize scan-type specific duplicate detection structures
+    let duplicateDetectionData = {};
+    if (scanType === 'pipeline') {
+        // For pipeline scans: use file-based fuzzy matching
+        duplicateDetectionData = {
+            flawFiles: new Map(), // file -> [{cwe, line, workItemId, workItemState}]
+            existingFlawNumbers: {}, // veracodeFlawId -> workItemId
+            existingIssueStates: {} // veracodeFlawId -> workItemState
+        };
+    } else {
+        // For policy scans: use exact flaw ID matching
+        duplicateDetectionData = {
+            existingFlaws: {}, // flawNumber -> true
+            existingFlawNumbers: {}, // flawNumber -> workItemId
+            existingIssueStates: {} // flawNumber -> workItemState
+        };
+    }
+    
+    // Populate duplicate detection data from existing work items
+    populateDuplicateDetectionData(existingWorkItems, duplicateDetectionData, scanType, debug);
 
     // Process the flaws using ADO-specific functions
     let createdCount = 0;
@@ -86,7 +126,7 @@ async function importFlawsToADO(params) {
     let closedCount = 0;
 
     if (scanType === 'pipeline') {
-        const result = await processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
+        const result = await processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, {
             source_base_path_1,
             source_base_path_2,
             source_base_path_3,
@@ -95,14 +135,15 @@ async function importFlawsToADO(params) {
             fail_build,
             debug,
             existingWorkItems,
-            processedFlawIds
+            processedFlawIds,
+            duplicateDetectionData
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
         skippedCount = result.skippedCount;
         closedCount = closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems, result.processedFlawIds, commit_hash, debug)
     } else {
-        const result = await processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
+        const result = await processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, {
             source_base_path_1,
             source_base_path_2,
             source_base_path_3,
@@ -111,12 +152,48 @@ async function importFlawsToADO(params) {
             fail_build,
             debug,
             existingWorkItems,
-            processedFlawIds
+            processedFlawIds,
+            duplicateDetectionData
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
         skippedCount = result.skippedCount;
-        closedCount = result.closedCount;
+    }
+
+    // Close work items that are no longer present in the scan results
+    let closedCount = 0;
+    if (autoCloseFindings) {
+        console.log(`\nChecking for work items to close (flaws not found in current scan)...`);
+        
+        for (const workItem of activeWorkItems) {
+        try {
+            const title = workItem.fields['System.Title'] || '';
+            const workItemId = workItem.id;
+            
+            // Check if this work item corresponds to a flaw that's still present
+            const isStillPresent = Array.from(processedFlawIds).some(flawId => {
+                return title.includes(flawId) || isWorkItemMatchingFlaw(workItem, flawId);
+            });
+            
+            if (!isStillPresent) {
+                console.log(`Closing work item ${workItemId} - flaw no longer found in scan: "${title}"`);
+                await closeWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, commit_hash, debug);
+                closedCount++;
+                
+                // Wait between API calls to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+            } else {
+                if (debug === 'true') {
+                    console.log(`Keeping work item ${workItemId} open - flaw still present: "${title}"`);
+                }
+            }
+        } catch (error) {
+            console.error(`Failed to close work item ${workItem.id}: ${error.message}`);
+            if (fail_build === 'true') {
+                throw error;
+            }
+        }
+        }
     }
 
     // Summary of work item operations
@@ -133,81 +210,112 @@ async function importFlawsToADO(params) {
     }
 }
 
-async function getExistingWorkItems(adoClient, adoOrg, adoProject, debug) {
+async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProject, debug) {
     try {
-        // Query for existing work items with Veracode tags
-        const url = `/${adoOrg}/${adoProject}/_apis/wit/wiql?api-version=7.1`;
-        const wiql = {
-            query: "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] CONTAINS 'Veracode' ORDER BY [System.ChangedDate] DESC"
-        };
+        // URL encode the organization and project names
+        const encodedOrg = encodeURIComponent(adoOrg);
+        const encodedProject = encodeURIComponent(adoProject);
+        
+        // Try different API versions and approaches
+        const apiVersions = ['7.0', '6.0', '5.1'];
+        let lastError = null;
+        
+        for (const apiVersion of apiVersions) {
+            try {
+                const url = `/${encodedOrg}/${encodedProject}/_apis/wit/wiql?api-version=${apiVersion}`;
+                const query = {
+                    query: "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] Contains 'Veracode' ORDER BY [System.ChangedDate] DESC"
+                };
 
-        if (debug === 'true') {
-            console.log('Querying existing work items with query:', JSON.stringify(wiql, null, 2));
-        }
+                if (debug === 'true') {
+                    console.log(`Trying API version ${apiVersion}...`);
+                    console.log('Querying existing work items with query:', JSON.stringify(query, null, 2));
+                    console.log('Full URL:', `${adoQueryClient.defaults.baseURL}${url}`);
+                }
 
-        const response = await adoClient.post(url, wiql, {
-            headers: {
-                'Content-Type': 'application/json'
+                const response = await adoQueryClient.post(url, query);
+                const workItemIds = response.data.workItems.map(wi => wi.id);
+
+                if (workItemIds.length === 0) {
+                    console.log('No existing work items with Veracode tags found');
+                    return [];
+                }
+
+                console.log(`Found ${workItemIds.length} existing work items with Veracode tags using API version ${apiVersion}`);
+
+                // Get full details for each work item with pagination (max 200 per request)
+                const workItems = [];
+                const batchSize = 200;
+                
+                for (let i = 0; i < workItemIds.length; i += batchSize) {
+                    const batch = workItemIds.slice(i, i + batchSize);
+                    const detailsUrl = `/${encodedOrg}/${encodedProject}/_apis/wit/workitems?ids=${batch.join(',')}&$expand=all&api-version=${apiVersion}`;
+                    
+                    if (debug === 'true') {
+                        console.log(`Fetching work item details batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(workItemIds.length/batchSize)} (${batch.length} items)`);
+                    }
+                    
+                    const detailsResponse = await adoClient.get(detailsUrl);
+                    const batchWorkItems = detailsResponse.data.value || [];
+                    workItems.push(...batchWorkItems);
+                    
+                    // Small delay between batches to avoid rate limiting
+                    if (i + batchSize < workItemIds.length) {
+                        await new Promise(resolve => setTimeout(resolve, 100));
+                    }
+                }
+                
+                // Check for potential duplicates in the results
+                const duplicateCheck = checkForDuplicateWorkItems(workItems, debug);
+                if (duplicateCheck.duplicates.length > 0) {
+                    console.warn(`Found ${duplicateCheck.duplicates.length} potential duplicate work items in existing data:`);
+                    duplicateCheck.duplicates.forEach(dup => {
+                        console.warn(`  - Similar titles: "${dup.title1}" and "${dup.title2}"`);
+                    });
+                }
+                
+                return workItems;
+            } catch (error) {
+                lastError = error;
+                if (debug === 'true') {
+                    console.log(`API version ${apiVersion} failed:`, error.message);
+                    if (error.response) {
+                        console.log(`  Status: ${error.response.status}`);
+                        console.log(`  Data:`, error.response.data);
+                    }
+                }
+                // Continue to next API version
             }
-        });
-        const workItemIds = response.data.workItems.map(wi => wi.id);
-
-        if (workItemIds.length === 0) {
-            console.log('No existing work items with Veracode tags found');
+        }
+        
+        // If all API versions failed, try a fallback approach using direct work items API
+        console.log('WIQL query failed, trying fallback approach...');
+        try {
+            // Note: The $filter approach may not work as expected, but let's try it
+            const fallbackUrl = `/${encodedOrg}/${encodedProject}/_apis/wit/workitems?$filter=System.Tags Contains 'Veracode'&$expand=all&api-version=7.0`;
+            const fallbackResponse = await adoClient.get(fallbackUrl);
+            const workItems = fallbackResponse.data.value || [];
+            
+            if (workItems.length === 0) {
+                console.log('No existing work items with Veracode tags found (fallback method)');
+                return [];
+            }
+            
+            console.log(`Found ${workItems.length} existing work items with Veracode tags using fallback method`);
+            return workItems;
+        } catch (fallbackError) {
+            console.log('Fallback method also failed:', fallbackError.message);
+            // If fallback also fails, return empty array instead of throwing error
+            // This allows the import to continue even if we can't get existing work items
+            console.log('Continuing without existing work item data - deduplication will be limited');
             return [];
         }
-
-        console.log(`Found ${workItemIds.length} existing work items with Veracode tags`);
-
-        // Get full details for each work item
-        //Get full details for each work item
-        const page_size = workItemIds.length < 200 ? workItemIds.length : 200
-
-        let workItems = [];
-        let skip = 0
-        let pagination = page_size
-        let hasMore = true
-        while (hasMore){
-            const tempItems = []
-            for (let i = skip; i < pagination; i++) {
-                tempItems.push(workItemIds[i])
-            }
-
-            const detailsUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems?ids=${tempItems.join(',')}&api-version=7.1`;
-            const detailsResponse = await adoClient.get(detailsUrl, {
-                headers: {
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            if(workItemIds.length > pagination) {
-                workItems = workItems.concat(detailsResponse.data.value)
-                skip += page_size
-                pagination += page_size
-                if(pagination > workItemIds.length){
-                    pagination = workItemIds.length
-                }
-            } else {
-                workItems = workItems.concat(detailsResponse.data.value)
-                hasMore = false
-            }
-        }
-        
-        // Check for potential duplicates in the results
-        const duplicateCheck = checkForDuplicateWorkItems(workItems, debug);
-        if (duplicateCheck.duplicates.length > 0) {
-            console.warn(`Found ${duplicateCheck.duplicates.length} potential duplicate work items in existing data:`);
-            duplicateCheck.duplicates.forEach(dup => {
-                console.warn(`  - Similar titles: "${dup.title1}" and "${dup.title2}"`);
-            });
-        }
-        
-        return workItems;
     } catch (error) {
         console.error('Error fetching existing work items:', error.message);
         if (debug === 'true' && error.response) {
             console.error('Response status:', error.response.status);
             console.error('Response data:', error.response.data);
+            console.error('Response headers:', error.response.headers);
         }
         return [];
     }
@@ -421,10 +529,7 @@ async function addComment(adoClient, url, workItemId, payload, debug){
 async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
     
-    // Change SyStemState to match ADO
-    const systemState = 'To Do'
-    
-    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.1`;
+    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
     const payload = [
         {
             op: 'replace',
@@ -483,13 +588,25 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
     });
 
     // Now create the work item
-    const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.1`;
+    const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.0`;
     const tags = cweTag ? `Veracode;Security;${cweTag}` : 'Veracode;Security';
+    
+    // Create title in the same format as GitHub action
+    let title;
+    if (scanType === 'pipeline') {
+        // Pipeline: issue_type + VeracodeFlawID
+        title = `${cweName} ` + createVeracodeFlawId(flaw, scanType);
+    } else {
+        // Policy: cwe_name + category + VeracodeFlawID
+        const category = flaw.finding_details?.finding_category?.name || 'Unknown';
+        title = `${cweName} ('${category}') ` + createVeracodeFlawId(flaw, scanType);
+    }
+    
     const payload = [
         {
             op: 'add',
             path: '/fields/System.Title',
-            value: `Veracode Flaw (Static): ${cweName}, Flaw ${flawId}`
+            value: title
         },
         {
             op: 'add',
@@ -635,26 +752,18 @@ function mapSeverity(veracodeSeverity) {
     return severityMap[veracodeSeverity] || '3 - Medium';
 }
 
-async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, flawResolution, commit_hash, debug) {
-    const flawResolutionStatus = ['MITIGATED']
-    let closeReason = ''
-    
-    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.1`;
-    if(flawResolutionStatus.includes(flawResolution)){
-        closeReason = `Closed by Veracode scan - Flaw Resolution = ${flawResolution}`
-    } else {
-        closeReason = `Closed by Veracode scan - Flaw no longer found in scan from commit ${commit_hash || 'Unknown'} on GitHub`
-    }    
+async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_hash, debug) {
+    const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
     const payload = [
         {
             op: 'replace',
             path: '/fields/System.State',
-            value: 'Done'
+            value: 'Completed'
         },
         {
             op: 'add',
             path: '/fields/System.History',
-            value: closeReason
+            value: `This work item has been automatically closed by Veracode automation because the flaw is no longer present in the latest scan results. Closed by Veracode scan from commit ${commit_hash || 'Unknown'} on GitHub.`
         }
     ];
 
@@ -735,9 +844,184 @@ function isWorkItemMatchingFlaw(workItem, flawId) {
     return false;
 }
 
+// Helper function to populate duplicate detection data from existing work items
+function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionData, scanType, debug) {
+    if (debug === 'true') {
+        console.log(`Populating duplicate detection data for ${scanType} scan with ${existingWorkItems.length} existing work items`);
+    }
+    
+    existingWorkItems.forEach(workItem => {
+        const title = workItem.fields['System.Title'] || '';
+        const workItemId = workItem.id;
+        const workItemState = workItem.fields['System.State'] || 'Unknown';
+        
+        // Extract Veracode Flaw ID from title
+        const veracodeFlawId = getVeracodeFlawIDFromTitle(title);
+        if (!veracodeFlawId) {
+            if (debug === 'true') {
+                console.log(`No Veracode Flaw ID found in title: "${title}"`);
+            }
+            return;
+        }
+        
+        if (debug === 'true') {
+            console.log(`Processing existing work item ${workItemId}: "${title}" -> Veracode ID: ${veracodeFlawId}`);
+        }
+        
+        if (scanType === 'pipeline') {
+            // Parse pipeline flaw ID: [VID:CWE:filename:linenum]
+            const flawInfo = parseVeracodeFlawID(veracodeFlawId);
+            if (flawInfo && flawInfo.file) {
+                const flawData = {
+                    cwe: flawInfo.cwe,
+                    line: flawInfo.line,
+                    workItemId: workItemId,
+                    workItemState: workItemState
+                };
+                
+                if (duplicateDetectionData.flawFiles.has(flawInfo.file)) {
+                    duplicateDetectionData.flawFiles.get(flawInfo.file).push(flawData);
+                } else {
+                    duplicateDetectionData.flawFiles.set(flawInfo.file, [flawData]);
+                }
+                
+                duplicateDetectionData.existingFlawNumbers[veracodeFlawId] = workItemId;
+                duplicateDetectionData.existingIssueStates[veracodeFlawId] = workItemState;
+                
+                if (debug === 'true') {
+                    console.log(`Added pipeline flaw data: File=${flawInfo.file}, CWE=${flawInfo.cwe}, Line=${flawInfo.line}, WorkItem=${workItemId}`);
+                }
+            } else {
+                if (debug === 'true') {
+                    console.log(`Failed to parse pipeline flaw ID: ${veracodeFlawId}`);
+                }
+            }
+        } else {
+            // Parse policy flaw ID: [VID:FlawID]
+            const flawInfo = parseVeracodeFlawID(veracodeFlawId);
+            if (flawInfo && flawInfo.flawNum) {
+                const flawNum = parseInt(flawInfo.flawNum);
+                duplicateDetectionData.existingFlaws[flawNum] = true;
+                duplicateDetectionData.existingFlawNumbers[flawNum] = workItemId;
+                duplicateDetectionData.existingIssueStates[flawNum] = workItemState;
+                
+                if (debug === 'true') {
+                    console.log(`Added policy flaw data: FlawNum=${flawNum}, WorkItem=${workItemId}`);
+                }
+            }
+        }
+    });
+    
+    if (debug === 'true' && scanType === 'pipeline') {
+        console.log(`Final duplicate detection data for pipeline scan:`);
+        console.log(`  Files with flaws:`, Array.from(duplicateDetectionData.flawFiles.keys()));
+        for (const [file, flaws] of duplicateDetectionData.flawFiles.entries()) {
+            console.log(`  File ${file}:`, flaws);
+        }
+    }
+}
+
+// Helper function to extract Veracode Flaw ID from work item title
+function getVeracodeFlawIDFromTitle(title) {
+    const start = title.indexOf('[VID');
+    if (start === -1) return null;
+    const end = title.indexOf(']', start);
+    if (end === -1) return null;
+    return title.substring(start, end + 1);
+}
+
+// Helper function to parse Veracode Flaw ID
+function parseVeracodeFlawID(vid) {
+    if (!vid) return null;
+    const parts = vid.replace(/^\[VID:/, '').replace(/\]$/, '').split(':');
+    
+    if (parts.length === 1) {
+        // Policy scan: [VID:FlawID]
+        return {
+            prefix: '[VID',
+            flawNum: parts[0]
+        };
+    } else if (parts.length === 3) {
+        // Pipeline scan: [VID:CWE:filename:linenum]
+        return {
+            prefix: '[VID',
+            cwe: parts[0],
+            file: parts[1],
+            line: parts[2]
+        };
+    }
+    return null;
+}
+
+// Pipeline-specific duplicate detection (fuzzy matching)
+function pipelineIssueExists(flaw, duplicateDetectionData, debug) {
+    const cweId = flaw.cwe_id || 'Unknown';
+    const fileName = flaw.files?.source_file?.file || 'Unknown';
+    const lineNumber = flaw.files?.source_file?.line || 'Unknown';
+    
+    if (debug === 'true') {
+        console.log(`Checking pipeline duplicate for: CWE=${cweId}, File=${fileName}, Line=${lineNumber}`);
+        console.log(`Available files in duplicate detection data:`, Array.from(duplicateDetectionData.flawFiles.keys()));
+    }
+    
+    if (!duplicateDetectionData.flawFiles.has(fileName)) {
+        if (debug === 'true') {
+            console.log(`File ${fileName} not found in existing flaws`);
+        }
+        return null;
+    }
+    
+    const existingFlaws = duplicateDetectionData.flawFiles.get(fileName);
+    const newFlawLine = parseInt(lineNumber);
+    
+    if (debug === 'true') {
+        console.log(`Found ${existingFlaws.length} existing flaws in file ${fileName}:`, existingFlaws);
+    }
+    
+    for (const existingFlaw of existingFlaws) {
+        // Check CWE match
+        if (existingFlaw.cwe === cweId) {
+            // Check line range (±10 lines)
+            const existingFlawLine = parseInt(existingFlaw.line);
+            if (debug === 'true') {
+                console.log(`CWE match found! Checking line range: new=${newFlawLine}, existing=${existingFlawLine} (range: ${existingFlawLine - 10} to ${existingFlawLine + 10})`);
+            }
+            if (newFlawLine >= (existingFlawLine - 10) && newFlawLine <= (existingFlawLine + 10)) {
+                if (debug === 'true') {
+                    console.log(`DUPLICATE FOUND! WorkItem ID: ${existingFlaw.workItemId}, State: ${existingFlaw.workItemState}`);
+                }
+                return {
+                    workItemId: existingFlaw.workItemId,
+                    workItemState: existingFlaw.workItemState
+                };
+            }
+        }
+    }
+    
+    if (debug === 'true') {
+        console.log(`No duplicate found for this flaw`);
+    }
+    return null;
+}
+
+// Policy-specific duplicate detection (exact matching)
+function policyIssueExists(flaw, duplicateDetectionData) {
+    const flawId = flaw.issue_id || 'Unknown';
+    const flawNum = parseInt(flawId);
+    
+    if (duplicateDetectionData.existingFlaws[flawNum] === true) {
+        return {
+            workItemId: duplicateDetectionData.existingFlawNumbers[flawNum],
+            workItemState: duplicateDetectionData.existingIssueStates[flawNum]
+        };
+    }
+    
+    return null;
+}
+
 // ADO-specific pipeline flaws processing
-async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds } = params;
+async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData } = params;
     
     let createdCount = 0;
     let reopenedCount = 0;
@@ -762,16 +1046,17 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
                 console.log(`Processing pipeline flaw ${flawId} with Veracode ID: ${veracodeFlawId}`);
             }
             
-            // Check if work item already exists
-            const existingWorkItem = validateNoDuplicates(existingWorkItems, veracodeFlawId, debug);
+            // Check if work item already exists using pipeline-specific fuzzy matching
+            const existingWorkItem = pipelineIssueExists(flaw, duplicateDetectionData, debug);
             
             if (existingWorkItem) {
-                const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
-                console.log(`Work item already exists for flaw ${flawId} (ID: ${existingWorkItem.id}, State: ${workItemState})`);
+                const workItemState = existingWorkItem.workItemState;
+                const workItemId = existingWorkItem.workItemId;
+                console.log(`Work item already exists for pipeline flaw ${flawId} (ID: ${workItemId}, State: ${workItemState})`);
                 
-                if (workItemState === 'Done') {
-                    console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
-                    await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
+                if (workItemState === 'Closed' || workItemState === 'Resolved') {
+                    console.log(`Reopening closed work item ${workItemId} for flaw ${flawId}`);
+                    await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
                         source_base_path_1,
                         source_base_path_2,
                         source_base_path_3,
@@ -780,13 +1065,13 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
                     });
                     reopenedCount++;
                 } else {
-                    console.log(`Work item ${existingWorkItem.id} is already open (State: ${workItemState}), skipping creation`);
+                    console.log(`Work item ${workItemId} is already open (State: ${workItemState}), skipping creation`);
                     skippedCount++;
                 }
             } else {
                 // Create new work item
                 console.log(`Creating new work item for pipeline flaw ${flawId} (Veracode ID: ${veracodeFlawId})`);
-                const workItem = await createWorkItem(adoClient, adoOrg, adoProject, adoWorkItemType, flaw, {
+                const workItem = await createWorkItem(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flaw, {
                     source_base_path_1,
                     source_base_path_2,
                     source_base_path_3,
@@ -821,8 +1106,8 @@ async function processPipelineFlawsADO(adoClient, adoOrg, adoProject, adoWorkIte
 }
 
 // ADO-specific policy flaws processing
-async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds } = params;
+async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData } = params;
     
     let createdCount = 0;
     let reopenedCount = 0;
@@ -850,44 +1135,33 @@ async function processPolicyFlawsADO(adoClient, adoOrg, adoProject, adoWorkItemT
                 console.log(`Processing policy flaw ${flawId} with Veracode ID: ${veracodeFlawId}`);
             }
             
-            // Check if work item already exists
-            const existingWorkItem = validateNoDuplicates(existingWorkItems, veracodeFlawId, debug);
+            // Check if work item already exists using policy-specific exact matching
+            const existingWorkItem = policyIssueExists(flaw, duplicateDetectionData);
             
             if (existingWorkItem) {
-                const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
-                console.log(`Work item already exists for (Flaw ID: ${flawId}, Status: ${flawStatus}) (ID: ${existingWorkItem.id}, State: ${workItemState})`);
+                const workItemState = existingWorkItem.workItemState;
+                const workItemId = existingWorkItem.workItemId;
+                console.log(`Work item already exists for policy flaw ${flawId} (ID: ${workItemId}, State: ${workItemState})`);
                 
-                if ((workItemState === 'Done' || workItemState === 'Resolved') && flawStatus !== 'CLOSED') {
-                    console.log(`Reopening closed work item ${existingWorkItem.id} for flaw ${flawId}`);
-                    await reopenWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, {
+                if (workItemState === 'Closed' || workItemState === 'Resolved') {
+                    console.log(`Reopening closed work item ${workItemId} for flaw ${flawId}`);
+                    await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
+                        source_base_path_1,
+                        source_base_path_2,
+                        source_base_path_3,
                         commit_hash,
                         debug
                     });
                     reopenedCount++;
                 } else {
-                    console.log(`Work item ${existingWorkItem.id} is already open (State: ${workItemState}), skipping creation`);
-                    
-                    //add mitigation comments
-                    if(annotations.length > 0){
-                        await updateWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, annotations, {
-                                                commit_hash,
-                                                debug
-                                            });
-                    }
-
-                    //check for closure
-                    if((workItemState !== 'Done' && workItemState !== 'Resolved') && (flawStatus === 'CLOSED')){
-                        console.log(`Flaw ID: ${flawId}, Veracode Status: ${flawStatus}; (Work Item: ${existingWorkItem.id} State: ${workItemState}); Checking For Closure`);
-                        await closeWorkItem(adoClient, adoOrg, adoProject, existingWorkItem.id, flawResolution, commit_hash, debug)
-                        closedCount++;
-                    }
+                    console.log(`Work item ${workItemId} is already open (State: ${workItemState}), skipping creation`);
                     skippedCount++;
 
                 }
             } else {
                 // Create new work item
                 console.log(`Creating new work item for policy flaw ${flawId} (Veracode ID: ${veracodeFlawId})`);
-                const workItem = await createWorkItem(adoClient, adoOrg, adoProject, adoWorkItemType, flaw, {
+                const workItem = await createWorkItem(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flaw, {
                     source_base_path_1,
                     source_base_path_2,
                     source_base_path_3,
