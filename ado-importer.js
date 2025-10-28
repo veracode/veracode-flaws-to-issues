@@ -177,7 +177,7 @@ async function importFlawsToADO(params) {
             
             if (!isStillPresent) {
                 console.log(`Closing work item ${workItemId} - flaw no longer found in scan: "${title}"`);
-                await closeWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, commit_hash, debug);
+                await closeWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, 'NOT_FOUND', commit_hash, debug);
                 closedCount++;
                 
                 // Wait between API calls to avoid rate limiting
@@ -752,8 +752,19 @@ function mapSeverity(veracodeSeverity) {
     return severityMap[veracodeSeverity] || '3 - Medium';
 }
 
-async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_hash, debug) {
+async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, resolution, commit_hash, debug) {
     const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+    
+    // Create appropriate closure message based on resolution
+    let closureMessage;
+    if (resolution === 'MITIGATED') {
+        closureMessage = `This work item has been automatically closed by Veracode automation because the finding has been mitigated (APPROVED status). Closed by Veracode scan from commit ${commit_hash || 'Unknown'}.`;
+    } else if (resolution === 'CLOSED BY SCAN') {
+        closureMessage = `This work item has been automatically closed by Veracode automation because the flaw is no longer present in the latest scan results. Closed by Veracode scan from commit ${commit_hash || 'Unknown'}.`;
+    } else {
+        closureMessage = `This work item has been automatically closed by Veracode automation. Closed by Veracode scan from commit ${commit_hash || 'Unknown'}.`;
+    }
+    
     const payload = [
         {
             op: 'replace',
@@ -763,7 +774,7 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, commit_h
         {
             op: 'add',
             path: '/fields/System.History',
-            value: `This work item has been automatically closed by Veracode automation because the flaw is no longer present in the latest scan results. Closed by Veracode scan from commit ${commit_hash || 'Unknown'} on GitHub.`
+            value: closureMessage
         }
     ];
 
@@ -803,7 +814,7 @@ async function closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems
             
             if (!isStillPresent) {
                 console.log(`Closing work item ${workItemId} - flaw no longer found in scan: "${title}"`);
-                await closeWorkItem(adoClient, adoOrg, adoProject, workItemId, flawResolution="CLOSED BY SCAN", commit_hash, debug);
+                await closeWorkItem(adoClient, adoOrg, adoProject, workItemId, 'CLOSED BY SCAN', commit_hash, debug);
                 closedCount++;
                 
                 // Wait between API calls to avoid rate limiting
@@ -1112,6 +1123,7 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
     let createdCount = 0;
     let reopenedCount = 0;
     let skippedCount = 0;
+    let closedCount = 0;
     
     const flaws = flawData._embedded?.findings || [];
     console.log(`Processing ${flaws.length} policy flaws for ADO`);
@@ -1188,6 +1200,45 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
             core.error(`Failed to process policy work item for flaw ${flaw.issue_id}: ${error.message}`);
             if (fail_build === 'true') {
                 throw error;
+            }
+        }
+    }
+    
+    // Close work items for findings that have been mitigated (APPROVED, FP, etc.)
+    console.log(`\nChecking for work items to close based on mitigation status...`);
+    for (const flaw of flaws) {
+        try {
+            const flawId = flaw.issue_id || 'Unknown';
+            const annotations = flaw.annotations || [];
+            
+            // Check if any annotation indicates the finding should be closed
+            const shouldClose = annotations.some(annotation => {
+                const action = annotation.action || '';
+                return ['APPROVED', 'FP'].includes(action);
+            });
+            
+            if (shouldClose) {
+                // Find existing work item for this flaw
+                const veracodeFlawId = createVeracodeFlawId(flaw, 'policy');
+                const existingWorkItem = policyIssueExists(flaw, duplicateDetectionData);
+                
+                if (existingWorkItem) {
+                    const workItemState = existingWorkItem.workItemState;
+                    const workItemId = existingWorkItem.workItemId;
+                    
+                    if (workItemState !== 'Closed' && workItemState !== 'Resolved') {
+                        console.log(`Closing work item ${workItemId} for flaw ${flawId} - finding has been mitigated`);
+                        await closeWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, 'MITIGATED', commit_hash, debug);
+                        closedCount++;
+                        
+                        // Wait between API calls to avoid rate limiting
+                        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                    }
+                }
+            }
+        } catch (error) {
+            if (debug === 'true') {
+                console.error(`Error processing mitigation status for flaw ${flaw.issue_id}:`, error.message);
             }
         }
     }
