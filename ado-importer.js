@@ -1349,6 +1349,33 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
                         // Wait between API calls to avoid rate limiting
                         await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
                     }
+                } else {
+                    // Flaw is NOT mitigated - check if work item should be reopened
+                    const isWorkItemClosed = workItemState === 'Closed' || workItemState === 'Resolved' || workItemState === 'Done';
+                    
+                    if (isWorkItemClosed) {
+                        console.log(`Reopening work item ${workItemId} for flaw ${flawId} - flaw is not mitigated but work item is closed`);
+                        
+                        try {
+                            await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
+                                source_base_path_1,
+                                source_base_path_2,
+                                source_base_path_3,
+                                commit_hash,
+                                debug
+                            });
+                            reopenedCount++;
+                            console.log(`✅ Successfully reopened work item ${workItemId} for flaw ${flawId} (not mitigated)`);
+                            
+                            // Wait between API calls to avoid rate limiting
+                            await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                        } catch (reopenError) {
+                            console.error(`❌ Failed to reopen work item ${workItemId} for flaw ${flawId}:`, reopenError.message);
+                            if (debug === 'true') {
+                                console.error('Reopen error details:', reopenError);
+                            }
+                        }
+                    }
                 }
                 
                 // Handle annotation-based actions (reopen if rejected)
