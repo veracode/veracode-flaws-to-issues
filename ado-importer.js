@@ -89,6 +89,21 @@ async function importFlawsToADO(params) {
     console.log(`Found ${existingWorkItems.length} existing work items to check against`);
 
     // Track which work items are still active (not closed)
+    console.log(`\n=== Work Item State Analysis ===`);
+    const stateCounts = {};
+    existingWorkItems.forEach(wi => {
+        const state = wi.fields['System.State'] || 'Unknown';
+        stateCounts[state] = (stateCounts[state] || 0) + 1;
+        if (debug === 'true') {
+            console.log(`Work Item ${wi.id}: State="${state}", Title="${wi.fields['System.Title']?.substring(0, 50)}..."`);
+        }
+    });
+    
+    console.log(`Work item state distribution:`);
+    Object.entries(stateCounts).forEach(([state, count]) => {
+        console.log(`  ${state}: ${count} work items`);
+    });
+    
     const activeWorkItems = existingWorkItems.filter(wi => {
         const state = wi.fields['System.State'] || 'Unknown';
         return state !== 'Done' && state !== 'Resolved' && state !== 'Removed';
@@ -242,11 +257,21 @@ async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProjec
                 const workItemIds = response.data.workItems.map(wi => wi.id);
 
                 if (workItemIds.length === 0) {
-                    console.log('No existing work items with Veracode tags found');
+                    console.log(`No existing work items with Veracode tags found in project '${adoProject}'`);
+                    if (debug === 'true') {
+                        console.log('Query executed successfully but returned no results');
+                        console.log('This could mean:');
+                        console.log('  1. No work items exist with "Veracode" tag in this project');
+                        console.log('  2. The project name might be incorrect');
+                        console.log('  3. The WIQL query syntax might need adjustment');
+                    }
                     return [];
                 }
 
-                console.log(`Found ${workItemIds.length} existing work items with Veracode tags using API version ${apiVersion}`);
+                console.log(`Found ${workItemIds.length} existing work items with Veracode tags in project '${adoProject}' using API version ${apiVersion}`);
+                if (debug === 'true') {
+                    console.log('Work item IDs found:', workItemIds);
+                }
 
                 // Get full details for each work item with pagination (max 200 per request)
                 const workItems = [];
