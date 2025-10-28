@@ -901,20 +901,20 @@ function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionDat
         const workItemId = workItem.id;
         const workItemState = workItem.fields['System.State'] || 'Unknown';
         
-        // Extract Veracode Flaw ID from title
-        const veracodeFlawId = getVeracodeFlawIDFromTitle(title);
-        if (!veracodeFlawId) {
-            if (debug === 'true') {
-                console.log(`No Veracode Flaw ID found in title: "${title}"`);
-            }
-            return;
-        }
-        
         if (debug === 'true') {
-            console.log(`Processing existing work item ${workItemId}: "${title}" -> Veracode ID: ${veracodeFlawId}`);
+            console.log(`Processing existing work item ${workItemId}: "${title}"`);
         }
         
         if (scanType === 'pipeline') {
+            // Extract Veracode Flaw ID from title for pipeline scans
+            const veracodeFlawId = getVeracodeFlawIDFromTitle(title);
+            if (!veracodeFlawId) {
+                if (debug === 'true') {
+                    console.log(`No Veracode Flaw ID found in title: "${title}"`);
+                }
+                return;
+            }
+            
             // Parse pipeline flaw ID: [VID:CWE:filename:linenum]
             const flawInfo = parseVeracodeFlawID(veracodeFlawId);
             if (flawInfo && flawInfo.file) {
@@ -953,7 +953,11 @@ function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionDat
                 duplicateDetectionData.existingIssueStates[flawId] = workItemState;
                 
                 if (debug === 'true') {
-                    console.log(`Added policy flaw data: FlawId=${flawId}, WorkItem=${workItemId}`);
+                    console.log(`✅ Added policy flaw data: FlawId=${flawId}, WorkItem=${workItemId}`);
+                }
+            } else {
+                if (debug === 'true') {
+                    console.log(`❌ Failed to extract flaw ID from title: "${title}"`);
                 }
             }
         }
