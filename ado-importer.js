@@ -596,15 +596,16 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
     const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.0`;
     const tags = cweTag ? `Veracode;Security;${cweTag}` : 'Veracode;Security';
     
-    // Create title in the same format as GitHub action
+    // Create title without duplication
     let title;
     if (scanType === 'pipeline') {
-        // Pipeline: issue_type + VeracodeFlawID
-        title = `${cweName} ` + createVeracodeFlawId(flaw, scanType);
+        // Pipeline: Just use the VeracodeFlawID which already contains the CWE name
+        title = createVeracodeFlawId(flaw, scanType);
     } else {
-        // Policy: cwe_name + category + VeracodeFlawID
+        // Policy: Add category to the VeracodeFlawID
         const category = flaw.finding_details?.finding_category?.name || 'Unknown';
-        title = `${cweName} ('${category}') ` + createVeracodeFlawId(flaw, scanType);
+        const baseTitle = createVeracodeFlawId(flaw, scanType);
+        title = `${baseTitle} ('${category}')`;
     }
     
     const payload = [
