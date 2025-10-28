@@ -785,7 +785,7 @@ function mapSeverity(veracodeSeverity) {
 
 async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, resolution, commit_hash, debug) {
     const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
-    
+
     // Create appropriate closure message based on resolution
     let closureMessage;
     if (resolution === 'MITIGATED') {
@@ -795,38 +795,56 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, resoluti
     } else {
         closureMessage = `This work item has been automatically closed by Veracode automation. Closed by Veracode scan from commit ${commit_hash || 'Unknown'}.`;
     }
-    
-    const payload = [
-        {
-            op: 'replace',
-            path: '/fields/System.State',
-            value: 'Completed'
-        },
-        {
-            op: 'add',
-            path: '/fields/System.History',
-            value: closureMessage
-        }
-    ];
 
-    if (debug === 'true') {
-        console.log('Closing work item with payload:', JSON.stringify(payload, null, 2));
-    }
+    // Different ADO processes have different state names. Try a few common ones.
+    const candidateStates = ['Done', 'Closed', 'Resolved', 'Completed'];
 
-    try {
-        const response = await adoClient.patch(url, payload, {
-            headers: {
-                'Content-Type': 'application/json-patch+json'
+    for (const state of candidateStates) {
+        const payload = [
+            {
+                op: 'replace',
+                path: '/fields/System.State',
+                value: state
+            },
+            {
+                op: 'add',
+                path: '/fields/System.History',
+                value: closureMessage
             }
-        });
+        ];
+
         if (debug === 'true') {
-            console.log('Work item closed successfully:', response.data.id);
+            console.log(`Attempting to close work item ${workItemId} using state "${state}" with payload:`, JSON.stringify(payload, null, 2));
         }
-        return response.data;
-    } catch (error) {
-        console.error(`Failed to close work item ${workItemId}:`, error.message);
-        throw error;
+
+        try {
+            const response = await adoClient.patch(url, payload, {
+                headers: {
+                    'Content-Type': 'application/json-patch+json'
+                }
+            });
+            if (debug === 'true') {
+                console.log(`Work item ${workItemId} closed successfully with state "${state}"`);
+            }
+            return response.data;
+        } catch (error) {
+            const status = error?.response?.status;
+            if (debug === 'true') {
+                console.log(`Closing with state "${state}" failed${status ? ` (status ${status})` : ''}. Trying next candidate...`);
+                if (error?.response?.data) {
+                    console.log('ADO error response:', JSON.stringify(error.response.data));
+                }
+            }
+            // Try next candidate state on 400/422 errors, otherwise rethrow
+            if (status && (status === 400 || status === 422)) {
+                continue;
+            }
+            throw error;
+        }
     }
+
+    // If none of the states worked, throw a clear error
+    throw new Error(`Failed to close work item ${workItemId}: none of the candidate states were accepted (${candidateStates.join(', ')})`);
 }
 
 async function closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems, processedFlawIds, commit_hash, debug){
