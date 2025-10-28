@@ -164,6 +164,7 @@ async function importFlawsToADO(params) {
     closedCount = 0;
     if (autoCloseFindings) {
         console.log(`\nChecking for work items to close (flaws not found in current scan)...`);
+        console.log(`Processing ${activeWorkItems.length} active work items against ${processedFlawIds.size} processed flaw IDs`);
         
         for (const workItem of activeWorkItems) {
         try {
@@ -188,9 +189,13 @@ async function importFlawsToADO(params) {
                 }
             }
         } catch (error) {
-            console.error(`Failed to close work item ${workItem.id}: ${error.message}`);
-            if (fail_build === 'true') {
-                throw error;
+            if (error.response && error.response.status === 400) {
+                console.log(`Work item ${workItem.id} not found (may have been deleted) - skipping closure: "${title}"`);
+            } else {
+                console.error(`Failed to close work item ${workItem.id}: ${error.message}`);
+                if (fail_build === 'true') {
+                    throw error;
+                }
             }
         }
         }
@@ -825,9 +830,13 @@ async function closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems
                 }
             }
         } catch (error) {
-            console.error(`Failed to close work item ${workItem.id}: ${error.message}`);
-            if (fail_build === 'true') {
-                throw error;
+            if (error.response && error.response.status === 400) {
+                console.log(`Work item ${workItem.id} not found (may have been deleted) - skipping closure: "${title}"`);
+            } else {
+                console.error(`Failed to close work item ${workItem.id}: ${error.message}`);
+                if (fail_build === 'true') {
+                    throw error;
+                }
             }
         }
     }
