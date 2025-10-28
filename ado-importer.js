@@ -229,7 +229,7 @@ async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProjec
             try {
                 const url = `/${encodedOrg}/${encodedProject}/_apis/wit/wiql?api-version=${apiVersion}`;
                 const query = {
-                    query: "SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] Contains 'Veracode' ORDER BY [System.ChangedDate] DESC"
+                    query: `SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] Contains 'Veracode' AND [System.TeamProject] = '${adoProject}' ORDER BY [System.ChangedDate] DESC`
                 };
 
                 if (debug === 'true') {
