@@ -1088,6 +1088,46 @@ function policyIssueExists(flaw, duplicateDetectionData) {
     return null;
 }
 
+// Helper function to process annotations and determine action (same logic as GitHub)
+function processAnnotationsADO(annotations) {
+    if (!annotations || annotations.length === 0) {
+        return { action: 'none', annotations: [] };
+    }
+    
+    // Sort all annotations by created date (most recent first)
+    const sortedAnnotations = annotations.sort((a, b) => new Date(b.created) - new Date(a.created));
+    
+    // Find the most recent APPROVED or REJECTED annotation (these take precedence)
+    const mostRecentApprovedOrRejected = sortedAnnotations.find(ann => 
+        ann.action === 'APPROVED' || ann.action === 'REJECTED'
+    );
+    
+    // If we have an APPROVED or REJECTED annotation, use it to determine the action
+    if (mostRecentApprovedOrRejected) {
+        if (mostRecentApprovedOrRejected.action === 'APPROVED') {
+            return { 
+                action: 'close', 
+                annotations: sortedAnnotations,
+                mostRecent: mostRecentApprovedOrRejected
+            };
+        } else if (mostRecentApprovedOrRejected.action === 'REJECTED') {
+            return { 
+                action: 'reopen', 
+                annotations: sortedAnnotations,
+                mostRecent: mostRecentApprovedOrRejected
+            };
+        }
+    }
+    
+    // If no APPROVED or REJECTED annotations, use the most recent annotation for update
+    const mostRecent = sortedAnnotations[0];
+    return { 
+        action: 'update', 
+        annotations: sortedAnnotations,
+        mostRecent: mostRecent
+    };
+}
+
 // ADO-specific pipeline flaws processing
 async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData } = params;
@@ -1277,12 +1317,35 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
                 const workItemState = existingWorkItem.workItemState;
                 const workItemId = existingWorkItem.workItemId;
                 
+                // Process annotations to determine action (same logic as GitHub)
+                const annotationResult = processAnnotationsADO(annotations);
+                
                 // Check if flaw is mitigated (APPROVED status) - same logic as GitHub
                 if (resolutionStatus === 'APPROVED') {
-                    if (workItemState !== 'Closed' && workItemState !== 'Resolved') {
+                    if (workItemState !== 'Closed' && workItemState !== 'Resolved' && workItemState !== 'Done') {
                         console.log(`Closing work item ${workItemId} for flaw ${flawId} - finding has been mitigated (APPROVED status)`);
                         await closeWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, 'MITIGATED', commit_hash, debug);
                         closedCount++;
+                        
+                        // Wait between API calls to avoid rate limiting
+                        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                    }
+                }
+                
+                // Handle annotation-based actions (reopen if rejected)
+                if (annotationResult.action === 'reopen') {
+                    console.log(`Reopening work item ${workItemId} for flaw ${flawId} - most recent annotation is REJECTED`);
+                    
+                    // Reopen the work item if it's closed
+                    if (workItemState === 'Closed' || workItemState === 'Resolved' || workItemState === 'Done') {
+                        await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
+                            source_base_path_1,
+                            source_base_path_2,
+                            source_base_path_3,
+                            commit_hash,
+                            debug
+                        });
+                        reopenedCount++;
                         
                         // Wait between API calls to avoid rate limiting
                         await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
