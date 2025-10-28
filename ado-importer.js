@@ -1189,7 +1189,7 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
             if (existingWorkItem) {
                 const workItemState = existingWorkItem.workItemState;
                 const workItemId = existingWorkItem.workItemId;
-                console.log(`Work item already exists for policy flaw ${flawId} (ID: ${workItemId}, State: ${workItemState})`);
+                console.log(`✅ DEDUPLICATION: Work item already exists for policy flaw ${flawId} (ID: ${workItemId}, State: ${workItemState})`);
                 
                 if (workItemState === 'Closed' || workItemState === 'Resolved') {
                     console.log(`Reopening closed work item ${workItemId} for flaw ${flawId}`);
