@@ -161,7 +161,7 @@ async function importFlawsToADO(params) {
     }
 
     // Close work items that are no longer present in the scan results
-    let closedCount = 0;
+    closedCount = 0;
     if (autoCloseFindings) {
         console.log(`\nChecking for work items to close (flaws not found in current scan)...`);
         
