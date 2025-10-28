@@ -560,37 +560,56 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug } = params;
     
     const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
-    const payload = [
-        {
-            op: 'replace',
-            path: '/fields/System.State',
-            value: systemState
-        },
-        {
-            op: 'add',
-            path: '/fields/System.History',
-            value: `Reopened by Veracode scan - Commit: ${commit_hash || 'Unknown'}`
-        }
-    ];
-
-    if (debug === 'true') {
-        console.log('Reopening work item with payload:', JSON.stringify(payload, null, 2));
-    }
-
-    try {
-        const response = await adoClient.patch(url, payload, {
-            headers: {
-                'Content-Type': 'application/json-patch+json'
+    
+    // Try different "open" states for different ADO processes
+    const candidateStates = ['To Do', 'Active', 'New', 'Open'];
+    
+    for (const state of candidateStates) {
+        const payload = [
+            {
+                op: 'replace',
+                path: '/fields/System.State',
+                value: state
+            },
+            {
+                op: 'add',
+                path: '/fields/System.History',
+                value: `Reopened by Veracode scan - Commit: ${commit_hash || 'Unknown'}`
             }
-        });
+        ];
+
         if (debug === 'true') {
-            console.log('Work item reopened successfully:', response.data.id);
+            console.log(`Attempting to reopen work item ${workItemId} using state "${state}" with payload:`, JSON.stringify(payload, null, 2));
         }
-        return response.data;
-    } catch (error) {
-        console.error(`Failed to reopen work item ${workItemId}:`, error.message);
-        throw error;
+
+        try {
+            const response = await adoClient.patch(url, payload, {
+                headers: {
+                    'Content-Type': 'application/json-patch+json'
+                }
+            });
+            if (debug === 'true') {
+                console.log(`Work item ${workItemId} reopened successfully with state "${state}"`);
+            }
+            return response.data;
+        } catch (error) {
+            const status = error?.response?.status;
+            if (debug === 'true') {
+                console.log(`Reopening with state "${state}" failed${status ? ` (status ${status})` : ''}. Trying next candidate...`);
+                if (error?.response?.data) {
+                    console.log('ADO error response:', JSON.stringify(error.response.data));
+                }
+            }
+            // Try next candidate state on 400/422 errors, otherwise rethrow
+            if (status && (status === 400 || status === 422)) {
+                continue;
+            }
+            throw error;
+        }
     }
+
+    // If none of the states worked, throw a clear error
+    throw new Error(`Failed to reopen work item ${workItemId}: none of the candidate states were accepted (${candidateStates.join(', ')})`);
 }
 
 async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, params) {
@@ -1338,17 +1357,27 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
                     
                     // Reopen the work item if it's closed
                     if (workItemState === 'Closed' || workItemState === 'Resolved' || workItemState === 'Done') {
-                        await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
-                            source_base_path_1,
-                            source_base_path_2,
-                            source_base_path_3,
-                            commit_hash,
-                            debug
-                        });
-                        reopenedCount++;
-                        
-                        // Wait between API calls to avoid rate limiting
-                        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                        try {
+                            await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
+                                source_base_path_1,
+                                source_base_path_2,
+                                source_base_path_3,
+                                commit_hash,
+                                debug
+                            });
+                            reopenedCount++;
+                            console.log(`✅ Successfully reopened work item ${workItemId} for flaw ${flawId}`);
+                            
+                            // Wait between API calls to avoid rate limiting
+                            await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                        } catch (reopenError) {
+                            console.error(`❌ Failed to reopen work item ${workItemId} for flaw ${flawId}:`, reopenError.message);
+                            if (debug === 'true') {
+                                console.error('Reopen error details:', reopenError);
+                            }
+                        }
+                    } else {
+                        console.log(`Work item ${workItemId} is already open (State: ${workItemState}), no need to reopen`);
                     }
                 }
                 
