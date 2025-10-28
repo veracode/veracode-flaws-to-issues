@@ -943,16 +943,17 @@ function populateDuplicateDetectionData(existingWorkItems, duplicateDetectionDat
                 }
             }
         } else {
-            // Parse policy flaw ID: [VID:FlawID]
-            const flawInfo = parseVeracodeFlawID(veracodeFlawId);
-            if (flawInfo && flawInfo.flawNum) {
-                const flawNum = parseInt(flawInfo.flawNum);
-                duplicateDetectionData.existingFlaws[flawNum] = true;
-                duplicateDetectionData.existingFlawNumbers[flawNum] = workItemId;
-                duplicateDetectionData.existingIssueStates[flawNum] = workItemState;
+            // Extract flaw ID directly from title for policy scans
+            // Title format: "Veracode Flaw (Static): [CWE Name], Flaw [ID]"
+            const flawIdMatch = title.match(/Flaw (\d+)/);
+            if (flawIdMatch) {
+                const flawId = flawIdMatch[1];
+                duplicateDetectionData.existingFlaws[flawId] = true;
+                duplicateDetectionData.existingFlawNumbers[flawId] = workItemId;
+                duplicateDetectionData.existingIssueStates[flawId] = workItemState;
                 
                 if (debug === 'true') {
-                    console.log(`Added policy flaw data: FlawNum=${flawNum}, WorkItem=${workItemId}`);
+                    console.log(`Added policy flaw data: FlawId=${flawId}, WorkItem=${workItemId}`);
                 }
             }
         }
@@ -1050,15 +1051,15 @@ function pipelineIssueExists(flaw, duplicateDetectionData, debug) {
     return null;
 }
 
-// Policy-specific duplicate detection (exact matching)
+// Policy-specific duplicate detection (exact matching by flaw ID)
 function policyIssueExists(flaw, duplicateDetectionData) {
     const flawId = flaw.issue_id || 'Unknown';
-    const flawNum = parseInt(flawId);
     
-    if (duplicateDetectionData.existingFlaws[flawNum] === true) {
+    // Use flaw ID directly for deduplication
+    if (duplicateDetectionData.existingFlaws[flawId] === true) {
         return {
-            workItemId: duplicateDetectionData.existingFlawNumbers[flawNum],
-            workItemState: duplicateDetectionData.existingIssueStates[flawNum]
+            workItemId: duplicateDetectionData.existingFlawNumbers[flawId],
+            workItemState: duplicateDetectionData.existingIssueStates[flawId]
         };
     }
     
