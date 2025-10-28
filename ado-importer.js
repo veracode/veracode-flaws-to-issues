@@ -1244,36 +1244,40 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
         }
     }
     
-    // Close work items for findings that have been mitigated (APPROVED, FP, etc.)
-    console.log(`\nChecking for work items to close based on mitigation status...`);
+    // Process mitigation status and annotations for existing work items
+    console.log(`\nProcessing mitigation status and annotations...`);
     for (const flaw of flaws) {
         try {
             const flawId = flaw.issue_id || 'Unknown';
             const annotations = flaw.annotations || [];
+            const resolutionStatus = flaw.finding_status?.resolution_status;
             
-            // Check if any annotation indicates the finding should be closed
-            const shouldClose = annotations.some(annotation => {
-                const action = annotation.action || '';
-                return ['APPROVED', 'FP'].includes(action);
-            });
+            // Find existing work item for this flaw
+            const existingWorkItem = policyIssueExists(flaw, duplicateDetectionData);
             
-            if (shouldClose) {
-                // Find existing work item for this flaw
-                const veracodeFlawId = createVeracodeFlawId(flaw, 'policy');
-                const existingWorkItem = policyIssueExists(flaw, duplicateDetectionData);
+            if (existingWorkItem) {
+                const workItemState = existingWorkItem.workItemState;
+                const workItemId = existingWorkItem.workItemId;
                 
-                if (existingWorkItem) {
-                    const workItemState = existingWorkItem.workItemState;
-                    const workItemId = existingWorkItem.workItemId;
-                    
+                // Check if flaw is mitigated (APPROVED status) - same logic as GitHub
+                if (resolutionStatus === 'APPROVED') {
                     if (workItemState !== 'Closed' && workItemState !== 'Resolved') {
-                        console.log(`Closing work item ${workItemId} for flaw ${flawId} - finding has been mitigated`);
+                        console.log(`Closing work item ${workItemId} for flaw ${flawId} - finding has been mitigated (APPROVED status)`);
                         await closeWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, 'MITIGATED', commit_hash, debug);
                         closedCount++;
                         
                         // Wait between API calls to avoid rate limiting
                         await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
                     }
+                }
+                
+                // Update work item with mitigation annotations (if any)
+                if (annotations.length > 0) {
+                    console.log(`Updating work item ${workItemId} with ${annotations.length} mitigation annotations`);
+                    await updateWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, annotations, {
+                        commit_hash,
+                        debug
+                    });
                 }
             }
         } catch (error) {
