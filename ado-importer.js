@@ -162,7 +162,7 @@ async function importFlawsToADO(params) {
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
         skippedCount = result.skippedCount;
-        closedCount = closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems, result.processedFlawIds, commit_hash, debug)
+        closedCount = closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems, result.processedFlawIds, commit_hash, debug, adoCloseState)
     } else {
         const result = await processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, {
             source_base_path_1,
@@ -1022,7 +1022,7 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, resoluti
     throw new Error(`Failed to close work item ${workItemId}: none of the candidate states were accepted (${candidateStates.join(', ')})`);
 }
 
-async function closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems, processedFlawIds, commit_hash, debug){
+async function closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems, processedFlawIds, commit_hash, debug, adoCloseState){
     // Close work items that are no longer present in the scan results
     console.log(`\nChecking for work items to close (flaws not found in current scan)...`);
     
@@ -1305,7 +1305,7 @@ function processAnnotationsADO(annotations) {
 
 // ADO-specific pipeline flaws processing
 async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoReopenState } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState } = params;
     
     let createdCount = 0;
     let reopenedCount = 0;
@@ -1393,7 +1393,7 @@ async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWo
 
 // ADO-specific policy flaws processing
 async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoReopenState } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState } = params;
     
     let createdCount = 0;
     let reopenedCount = 0;
