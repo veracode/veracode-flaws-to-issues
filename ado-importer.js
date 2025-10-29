@@ -762,6 +762,59 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
         console.log('Payload:', JSON.stringify(payload, null, 2));
     }
 
+    // For Bug, we might need to adapt payload to process templates. Try candidates when needed.
+    const isBug = String(workItemType).toLowerCase() === 'bug';
+    if (isBug) {
+        // Build candidate payloads derived from the primary Bug payload above
+        const baseAdds = payload.filter(p => p.path !== '/fields/Microsoft.VSTS.TCM.ReproSteps' && p.path !== '/fields/System.Description');
+        const repro = { op: 'add', path: '/fields/Microsoft.VSTS.TCM.ReproSteps', value: description };
+        const desc  = { op: 'add', path: '/fields/System.Description', value: description };
+        const candidates = [
+            [...baseAdds, repro, desc],
+            [...baseAdds, repro],
+            [...baseAdds, desc],
+            [...baseAdds]
+        ];
+
+        for (let i = 0; i < candidates.length; i++) {
+            try {
+                if (debug === 'true') {
+                    console.log(`Posting Bug create with candidate #${i+1}`);
+                }
+                const response = await adoClient.post(url, candidates[i], {
+                    headers: { 'Content-Type': 'application/json-patch+json' }
+                });
+                if (debug === 'true') {
+                    console.log('Response:', JSON.stringify(response.data, null, 2));
+                }
+                // If last candidate (no description fields) was used, add description to Discussion
+                if (i === candidates.length - 1) {
+                    try {
+                        const discussUrl = `/${adoOrg}/${project}/_apis/wit/workitems/${response.data.id}?api-version=7.0`;
+                        const discussPayload = [{ op: 'add', path: '/fields/System.History', value: description }];
+                        await adoClient.patch(discussUrl, discussPayload, { headers: { 'Content-Type': 'application/json-patch+json' } });
+                    } catch (e) {
+                        console.error(`Failed to backfill Discussion for Bug ${response.data?.id}: ${e.message}`);
+                    }
+                }
+                return response.data;
+            } catch (error) {
+                const status = error?.response?.status;
+                console.error(`Bug create candidate #${i+1} failed${status ? ` (status ${status})` : ''}: ${error.message}`);
+                if (error?.response?.data) {
+                    console.error('ADO response:', JSON.stringify(error.response.data));
+                }
+                if (!(status && (status === 400 || status === 422))) {
+                    throw error;
+                }
+                // try next
+            }
+        }
+        // If all candidates failed, throw
+        throw new Error('Failed to create Bug work item after trying all payload variants');
+    }
+
+    // Non-Bug types: single post as before
     try {
         const response = await adoClient.post(url, payload, {
             headers: {
@@ -773,14 +826,10 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
         }
         return response.data;
     } catch (error) {
-        if (debug === 'true') {
-            console.error('Error creating work item:');
-            console.error('Status:', error.response?.status);
-            console.error('Data:', error.response?.data);
-            console.error('Headers:', error.response?.headers);
-            console.error('Request URL:', error.config?.url);
-            console.error('Request Method:', error.config?.method);
-            console.error('Request Headers:', error.config?.headers);
+        console.error('Error creating work item:', error.message);
+        if (error.response) {
+            console.error('Status:', error.response.status);
+            console.error('Data:', error.response.data);
         }
         throw error;
     }
@@ -1226,7 +1275,7 @@ function processAnnotationsADO(annotations) {
 
 // ADO-specific pipeline flaws processing
 async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoReopenState } = params;
     
     let createdCount = 0;
     let reopenedCount = 0;
@@ -1314,7 +1363,7 @@ async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWo
 
 // ADO-specific policy flaws processing
 async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoReopenState } = params;
     
     let createdCount = 0;
     let reopenedCount = 0;
