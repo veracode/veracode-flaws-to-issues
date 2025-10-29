@@ -1429,8 +1429,13 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
                 const workItemState = existingWorkItem.workItemState;
                 const workItemId = existingWorkItem.workItemId;
                 console.log(`✅ DEDUPLICATION: Work item already exists for policy flaw ${flawId} (ID: ${workItemId}, State: ${workItemState})`);
-                
-                if (workItemState === 'Closed' || workItemState === 'Resolved') {
+
+                // Guard: do NOT reopen if the flaw is mitigated (APPROVED) even if the work item is closed.
+                const resolutionStatusEarly = flaw.finding_status?.resolution_status;
+                const isClosedState = workItemState === 'Closed' || workItemState === 'Resolved' || workItemState === 'Done';
+                const shouldReopen = isClosedState && resolutionStatusEarly !== 'APPROVED';
+
+                if (shouldReopen) {
                     console.log(`Reopening closed work item ${workItemId} for flaw ${flawId}`);
                     await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
                         source_base_path_1,
