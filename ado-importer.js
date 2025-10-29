@@ -493,12 +493,21 @@ function formatMitigation(annotation){
     mitigation += "<b>Action:</b> " + action + "<br>";;
 
     if(!mitigationStatus.includes(action)){
-        mitigation += "<b>Technique:</b> " + technique + "<br/>";
-        mitigation += "<b>Specifics:</b> " + specifics + "<br>";
-        mitigation += "<b>Remaining Risk:</b> " + remaining_risk + "<br>";
-        mitigation += "<b>Verification:</b> " + verification + "<br>";
+        // Check if TSRV fields contain meaningful data (not all "Unknown")
+        const hasTSRVData = technique !== 'Unknown' || specifics !== 'Unknown' || remaining_risk !== 'Unknown' || verification !== 'Unknown';
+        
+        if (hasTSRVData) {
+            // Use TSRV format when we have meaningful data
+            mitigation += "<b>Technique:</b> " + technique + "<br/>";
+            mitigation += "<b>Specifics:</b> " + specifics + "<br>";
+            mitigation += "<b>Remaining Risk:</b> " + remaining_risk + "<br>";
+            mitigation += "<b>Verification:</b> " + verification + "<br>";
+        } else {
+            // Fall back to comment format when TSRV data is not available
+            mitigation += "<b>Comment:</b> " + comment + "<br>";
+        }
     } else {
-        mitigation += "<b>Comment:</b>" + comment;
+        mitigation += "<b>Comment:</b> " + comment + "<br>";
     }
 
     return { mitigation_title, mitigation }
@@ -547,7 +556,9 @@ async function updateWorkItem(adoClient, adoOrg, adoProject, workItemId, annotat
             const { mitigation_title, mitigation } = formatMitigation(annot);
             
             // Check if this mitigation already exists in Discussion
-            const duplicate_mitigation = existingDiscussion.includes(mitigation_title);
+            // For Bug work items, check for the full mitigation content, not just the title
+            // This handles cases where the same mitigation might be added multiple times
+            const duplicate_mitigation = existingDiscussion.includes(mitigation);
             
             if (!duplicate_mitigation) {
                 // Add this specific mitigation to Discussion
