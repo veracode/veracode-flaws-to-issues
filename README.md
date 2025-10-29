@@ -213,9 +213,43 @@ source-base-path-2: "^WEB-INF:src/main/webapp/WEB-INF"
 
 ### `ADO_WORK_ITEM_TYPE`
 
-**Optional for ADO** Azure DevOps Work Item Type to create. Valid values are: Bug, Issue, Task, Epic, Feature, Test Case, User Story.
+**Optional for ADO** Azure DevOps Work Item Type to create. Currently supported and tested by this action: `Issue` and `Bug`.
 | Default value | `"Issue"` |
 --- | ---
+
+When `ADO_WORK_ITEM_TYPE` is set to `Bug`, the action uses ADO Bug-specific fields and state names:
+- The finding description is written to the Bug `Repro Steps` field (instead of `Description`)
+- Mitigation details are appended to the Bug `Discussion` (System.History)
+- Bug state names differ from Issue and can be configured via the state inputs below
+
+### `ADO_OPEN_STATE`
+
+**Optional for ADO** State to use when creating or reopening a work item.
+- For `Issue` work items the default is `"To Do"`
+- For `Bug` work items we recommend `"New"`
+
+| Default value | `"To Do"` |
+--- | ---
+
+### `ADO_CLOSE_STATE`
+
+**Optional for ADO** State to use when closing a work item.
+- For `Issue` work items the default is `"Done"`
+- For `Bug` work items we recommend `"Closed"`
+
+| Default value | `"Done"` |
+--- | ---
+
+### `ADO_REOPEN_STATE`
+
+**Optional for ADO** State to use when reopening a work item.
+- For `Issue` work items the default is `"To Do"`
+- For `Bug` work items we recommend `"New"`
+
+| Default value | `"To Do"` |
+--- | ---
+
+> Note: When `ADO_WORK_ITEM_TYPE` is set to `Bug`, the three state inputs `ADO_OPEN_STATE`, `ADO_CLOSE_STATE`, and `ADO_REOPEN_STATE` are effectively required to match your ADO process configuration. If they are not provided, the action will attempt sensible defaults but your process may require specific state names.
 
 ---
 

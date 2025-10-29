@@ -31,11 +31,21 @@ try {
         const ado_org = core.getInput('ADO_ORG', {required: true});
         const ado_project = core.getInput('ADO_PROJECT', {required: true});
         const ado_work_item_type = core.getInput('ADO_WORK_ITEM_TYPE') || 'Issue';
+        const ado_open_state = core.getInput('ADO_OPEN_STATE') || 'To Do';
+        const ado_close_state = core.getInput('ADO_CLOSE_STATE') || 'Done';
+        const ado_reopen_state = core.getInput('ADO_REOPEN_STATE') || 'To Do';
 
         // Validate work item type
-        const validWorkItemTypes = ['Bug', 'Issue', 'Task', 'Epic', 'Feature', 'Test Case', 'User Story'];
+        const validWorkItemTypes = ['Bug', 'Issue'];
         if (!validWorkItemTypes.includes(ado_work_item_type)) {
             throw new Error(`Invalid ADO_WORK_ITEM_TYPE. Must be one of: ${validWorkItemTypes.join(', ')}`);
+        }
+
+        // Validate state parameters for Bug type
+        if (ado_work_item_type === 'Bug') {
+            if (!ado_open_state || !ado_close_state || !ado_reopen_state) {
+                throw new Error('For Bug work item type, ADO_OPEN_STATE, ADO_CLOSE_STATE, and ADO_REOPEN_STATE parameters are required');
+            }
         }
 
         // Import flaws to Azure DevOps
@@ -45,6 +55,9 @@ try {
             adoOrg: ado_org,
             adoProject: ado_project,
             adoWorkItemType: ado_work_item_type,
+            adoOpenState: ado_open_state,
+            adoCloseState: ado_close_state,
+            adoReopenState: ado_reopen_state,
             waitTime: waitTime,
             source_base_path_1: source_base_path_1,
             source_base_path_2: source_base_path_2,

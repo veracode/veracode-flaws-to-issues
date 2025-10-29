@@ -55,9 +55,21 @@ inputs:
     description: 'Azure DevOps Project'
     required: false
   ADO_WORK_ITEM_TYPE:
-    description: 'Azure DevOps Work Item Type (Bug, Issue, Task, Epic, Feature, Test Case, User Story)'
+    description: 'Azure DevOps Work Item Type (Bug, Issue)'
     required: false
     default: 'Issue'
+  ADO_OPEN_STATE:
+    description: 'Azure DevOps state for new work items (default: "To Do" for Issue, "New" for Bug)'
+    required: false
+    default: 'To Do'
+  ADO_CLOSE_STATE:
+    description: 'Azure DevOps state for closed work items (default: "Done" for Issue, "Closed" for Bug)'
+    required: false
+    default: 'Done'
+  ADO_REOPEN_STATE:
+    description: 'Azure DevOps state for reopened work items (default: "To Do" for Issue, "New" for Bug)'
+    required: false
+    default: 'To Do'
 
 runs:
   using: 'node20'
