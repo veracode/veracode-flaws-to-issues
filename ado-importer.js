@@ -626,11 +626,28 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
     
     const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
     
+    // Check if reopening comment already exists to avoid duplicates
+    let existingReopenComment = false;
+    const expectedComment = `Reopened by Veracode scan - Commit: ${commit_hash || 'Unknown'}`;
+    try {
+        const currentWorkItem = await adoClient.get(url);
+        const existingHistory = currentWorkItem.data.fields['System.History'] || '';
+        existingReopenComment = existingHistory.includes(expectedComment);
+    } catch (error) {
+        console.error(`Failed to check existing history for work item ${workItemId}:`, error.message);
+    }
+    
     // Use configurable reopen state, with fallback to common states
     const candidateStates = adoReopenState ? [adoReopenState] : ['To Do', 'Active', 'New', 'Open'];
     
     for (const state of candidateStates) {
-        const payload = [
+        const payload = existingReopenComment ? [
+            {
+                op: 'replace',
+                path: '/fields/System.State',
+                value: state
+            }
+        ] : [
             {
                 op: 'replace',
                 path: '/fields/System.State',
@@ -639,7 +656,7 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
             {
                 op: 'add',
                 path: '/fields/System.History',
-                value: `Reopened by Veracode scan - Commit: ${commit_hash || 'Unknown'}`
+                value: expectedComment
             }
         ];
 
@@ -971,11 +988,27 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, resoluti
         closureMessage = `This work item has been automatically closed by Veracode automation. Closed by Veracode scan from commit ${commit_hash || 'Unknown'}.`;
     }
 
+    // Check if closure comment already exists to avoid duplicates
+    let existingCloseComment = false;
+    try {
+        const currentWorkItem = await adoClient.get(url);
+        const existingHistory = currentWorkItem.data.fields['System.History'] || '';
+        existingCloseComment = existingHistory.includes(closureMessage);
+    } catch (error) {
+        console.error(`Failed to check existing history for work item ${workItemId}:`, error.message);
+    }
+
     // Use configurable close state, with fallback to common states
     const candidateStates = adoCloseState ? [adoCloseState] : ['Done', 'Closed', 'Resolved', 'Completed'];
 
     for (const state of candidateStates) {
-        const payload = [
+        const payload = existingCloseComment ? [
+            {
+                op: 'replace',
+                path: '/fields/System.State',
+                value: state
+            }
+        ] : [
             {
                 op: 'replace',
                 path: '/fields/System.State',
