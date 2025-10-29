@@ -523,32 +523,56 @@ async function updateWorkItem(adoClient, adoOrg, adoProject, workItemId, annotat
     })
 
     if (workItemType === 'Bug') {
-        // For Bug work items, add mitigation information to Discussion field
-        const mitigationText = sorted_annotations.map(annot => {
-            const { mitigation_title, mitigation } = formatMitigation(annot);
-            return mitigation;
-        }).join('\n\n---\n\n');
-        
+        // For Bug work items, add mitigation information to Discussion field individually
+        // We need to check existing Discussion content to avoid duplicates
         const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
-        const payload = [
-            {
-                op: 'add',
-                path: '/fields/System.History',
-                value: `Mitigation Information:\n\n${mitigationText}`
-            }
-        ];
         
+        // Get current work item to check existing Discussion content
+        let existingDiscussion = '';
         try {
-            await adoClient.patch(url, payload, {
-                headers: {
-                    'Content-Type': 'application/json-patch+json'
-                }
-            });
-            if (debug === 'true') {
-                console.log(`Added mitigation information to Bug work item ${workItemId} Discussion field`);
-            }
+            const currentWorkItem = await adoClient.get(url);
+            existingDiscussion = currentWorkItem.data.fields['System.History'] || '';
         } catch (error) {
-            console.error(`Failed to add mitigation information to Bug work item ${workItemId}:`, error.message);
+            console.error(`Failed to get current work item ${workItemId} for Discussion check:`, error.message);
+        }
+        
+        // Process each annotation individually to avoid duplicates
+        for (const annot of sorted_annotations) {
+            const { mitigation_title, mitigation } = formatMitigation(annot);
+            
+            // Check if this mitigation already exists in Discussion
+            const duplicate_mitigation = existingDiscussion.includes(mitigation_title);
+            
+            if (!duplicate_mitigation) {
+                // Add this specific mitigation to Discussion
+                const payload = [
+                    {
+                        op: 'add',
+                        path: '/fields/System.History',
+                        value: mitigation
+                    }
+                ];
+                
+                try {
+                    await adoClient.patch(url, payload, {
+                        headers: {
+                            'Content-Type': 'application/json-patch+json'
+                        }
+                    });
+                    if (debug === 'true') {
+                        console.log(`Added mitigation "${mitigation_title}" to Bug work item ${workItemId} Discussion field`);
+                    }
+                    
+                    // Update our local copy to avoid duplicates in the same run
+                    existingDiscussion += mitigation;
+                } catch (error) {
+                    console.error(`Failed to add mitigation "${mitigation_title}" to Bug work item ${workItemId}:`, error.message);
+                }
+            } else {
+                if (debug === 'true') {
+                    console.log(`Skipping duplicate mitigation "${mitigation_title}" found in Bug work item ${workItemId} Discussion`);
+                }
+            }
         }
     } else {
         // For Issue work items, use comments (existing behavior)
