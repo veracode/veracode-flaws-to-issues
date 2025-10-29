@@ -154,7 +154,10 @@ async function importFlawsToADO(params) {
             debug,
             existingWorkItems,
             processedFlawIds,
-            duplicateDetectionData
+            duplicateDetectionData,
+            adoOpenState,
+            adoCloseState,
+            adoReopenState
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
@@ -171,7 +174,10 @@ async function importFlawsToADO(params) {
             debug,
             existingWorkItems,
             processedFlawIds,
-            duplicateDetectionData
+            duplicateDetectionData,
+            adoOpenState,
+            adoCloseState,
+            adoReopenState
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
