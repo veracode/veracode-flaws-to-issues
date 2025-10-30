@@ -528,6 +528,47 @@ async function checkExistingComments(adoClient, url, workItemId){
     }
 }
 
+// Normalize HTML/text for robust duplicate detection
+function normalizeTextForCompare(text) {
+    if (!text) return '';
+    try {
+        const noHtml = String(text).replace(/<[^>]*>/g, ' ');
+        return noHtml.replace(/\s+/g, ' ').trim().toLowerCase();
+    } catch (_) {
+        return String(text).toLowerCase();
+    }
+}
+
+// Fetch all previous System.History additions for a work item via Updates API
+async function fetchWorkItemHistoryEntries(adoClient, adoOrg, adoProject, workItemId, debug) {
+    const pageSize = 200;
+    let skip = 0;
+    let allHistory = [];
+    while (true) {
+        const updatesUrl = `/${adoOrg}/${adoProject}/_apis/wit/workItems/${workItemId}/updates?$top=${pageSize}&$skip=${skip}&api-version=7.0`;
+        if (debug === 'true') {
+            console.log(`Fetching work item updates: ${updatesUrl}`);
+        }
+        const res = await adoClient.get(updatesUrl);
+        const values = res.data?.value || [];
+        for (const upd of values) {
+            const fields = upd.fields || {};
+            const hist = fields['System.History'];
+            // Can appear as { newValue: 'text', oldValue: '...' } or direct string in some templates
+            if (hist) {
+                if (typeof hist === 'string') {
+                    allHistory.push(hist);
+                } else if (typeof hist.newValue === 'string') {
+                    allHistory.push(hist.newValue);
+                }
+            }
+        }
+        if (values.length < pageSize) break;
+        skip += pageSize;
+    }
+    return allHistory;
+}
+
 async function updateWorkItem(adoClient, adoOrg, adoProject, workItemId, annotations, params) {
     const { commit_hash, debug, workItemType } = params;
     
@@ -539,29 +580,15 @@ async function updateWorkItem(adoClient, adoOrg, adoProject, workItemId, annotat
 
     if (workItemType === 'Bug') {
         // For Bug work items, add mitigation information to Discussion field individually
-        // We need to check existing Discussion content to avoid duplicates
-        const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
-        
-        // Get current work item to check existing Discussion content
-        let existingDiscussion = '';
-        try {
-            const currentWorkItem = await adoClient.get(url);
-            existingDiscussion = currentWorkItem.data.fields['System.History'] || '';
-        } catch (error) {
-            console.error(`Failed to get current work item ${workItemId} for Discussion check:`, error.message);
-        }
-        
-        // Process each annotation individually to avoid duplicates
+        // Use Updates API to gather all existing discussion entries to avoid duplicates reliably
+        const historyEntries = await fetchWorkItemHistoryEntries(adoClient, adoOrg, adoProject, workItemId, debug);
+        const existingSet = new Set(historyEntries.map(normalizeTextForCompare));
+        const workItemUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+
         for (const annot of sorted_annotations) {
             const { mitigation_title, mitigation } = formatMitigation(annot);
-            
-            // Check if this mitigation already exists in Discussion
-            // For Bug work items, check for the full mitigation content, not just the title
-            // This handles cases where the same mitigation might be added multiple times
-            const duplicate_mitigation = existingDiscussion.includes(mitigation);
-            
-            if (!duplicate_mitigation) {
-                // Add this specific mitigation to Discussion
+            const key = normalizeTextForCompare(mitigation);
+            if (!existingSet.has(key)) {
                 const payload = [
                     {
                         op: 'add',
@@ -569,26 +596,21 @@ async function updateWorkItem(adoClient, adoOrg, adoProject, workItemId, annotat
                         value: mitigation
                     }
                 ];
-                
                 try {
-                    await adoClient.patch(url, payload, {
+                    await adoClient.patch(workItemUrl, payload, {
                         headers: {
                             'Content-Type': 'application/json-patch+json'
                         }
                     });
+                    existingSet.add(key);
                     if (debug === 'true') {
                         console.log(`Added mitigation "${mitigation_title}" to Bug work item ${workItemId} Discussion field`);
                     }
-                    
-                    // Update our local copy to avoid duplicates in the same run
-                    existingDiscussion += mitigation;
                 } catch (error) {
                     console.error(`Failed to add mitigation "${mitigation_title}" to Bug work item ${workItemId}:`, error.message);
                 }
-            } else {
-                if (debug === 'true') {
-                    console.log(`Skipping duplicate mitigation "${mitigation_title}" found in Bug work item ${workItemId} Discussion`);
-                }
+            } else if (debug === 'true') {
+                console.log(`Skipping duplicate mitigation "${mitigation_title}" found in Bug work item ${workItemId} Discussion`);
             }
         }
     } else {
@@ -637,13 +659,13 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
     
     const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
     
-    // Check if reopening comment already exists to avoid duplicates
-    let existingReopenComment = false;
+    // Check if reopening comment already exists to avoid duplicates using Updates API
     const expectedComment = `Reopened by Veracode scan - Commit: ${commit_hash || 'Unknown'}`;
+    let existingReopenComment = false;
     try {
-        const currentWorkItem = await adoClient.get(url);
-        const existingHistory = currentWorkItem.data.fields['System.History'] || '';
-        existingReopenComment = existingHistory.includes(expectedComment);
+        const historyEntries = await fetchWorkItemHistoryEntries(adoClient, adoOrg, adoProject, workItemId, debug);
+        const existingSet = new Set(historyEntries.map(normalizeTextForCompare));
+        existingReopenComment = existingSet.has(normalizeTextForCompare(expectedComment));
     } catch (error) {
         console.error(`Failed to check existing history for work item ${workItemId}:`, error.message);
     }
@@ -999,12 +1021,12 @@ async function closeWorkItem(adoClient, adoOrg, adoProject, workItemId, resoluti
         closureMessage = `This work item has been automatically closed by Veracode automation. Closed by Veracode scan from commit ${commit_hash || 'Unknown'}.`;
     }
 
-    // Check if closure comment already exists to avoid duplicates
+    // Check if closure comment already exists to avoid duplicates using Updates API
     let existingCloseComment = false;
     try {
-        const currentWorkItem = await adoClient.get(url);
-        const existingHistory = currentWorkItem.data.fields['System.History'] || '';
-        existingCloseComment = existingHistory.includes(closureMessage);
+        const historyEntries = await fetchWorkItemHistoryEntries(adoClient, adoOrg, adoProject, workItemId, debug);
+        const existingSet = new Set(historyEntries.map(normalizeTextForCompare));
+        existingCloseComment = existingSet.has(normalizeTextForCompare(closureMessage));
     } catch (error) {
         console.error(`Failed to check existing history for work item ${workItemId}:`, error.message);
     }
