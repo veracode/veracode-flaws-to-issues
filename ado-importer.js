@@ -144,7 +144,7 @@ async function importFlawsToADO(params) {
     let closedCount = 0;
 
     if (scanType === 'pipeline') {
-        const result = await processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, {
+        const result = await processPipelineFlawsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
             source_base_path_1,
             source_base_path_2,
             source_base_path_3,
@@ -157,14 +157,15 @@ async function importFlawsToADO(params) {
             duplicateDetectionData,
             adoOpenState,
             adoCloseState,
-            adoReopenState
+            adoReopenState,
+            scanType: 'pipeline'
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
         skippedCount = result.skippedCount;
         closedCount = closePipelineFlaws(adoClient, adoOrg, adoProject, activeWorkItems, result.processedFlawIds, commit_hash, debug, adoCloseState)
     } else {
-        const result = await processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, {
+        const result = await processPolicyFlawsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
             source_base_path_1,
             source_base_path_2,
             source_base_path_3,
@@ -177,7 +178,8 @@ async function importFlawsToADO(params) {
             duplicateDetectionData,
             adoOpenState,
             adoCloseState,
-            adoReopenState
+            adoReopenState,
+            scanType: 'policy'
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
@@ -1370,8 +1372,12 @@ function processAnnotationsADO(annotations) {
 }
 
 // ADO-specific pipeline flaws processing
-async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState } = params;
+async function processPipelineFlawsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState, scanType } = params;
+    
+    // Local references that can be updated
+    let currentExistingWorkItems = existingWorkItems;
+    let currentDuplicateDetectionData = duplicateDetectionData;
     
     let createdCount = 0;
     let reopenedCount = 0;
@@ -1397,7 +1403,7 @@ async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWo
             }
             
             // Check if work item already exists using pipeline-specific fuzzy matching
-            const existingWorkItem = pipelineIssueExists(flaw, duplicateDetectionData, debug);
+            const existingWorkItem = pipelineIssueExists(flaw, currentDuplicateDetectionData, debug);
             
             if (existingWorkItem) {
                 const workItemState = existingWorkItem.workItemState;
@@ -1458,8 +1464,12 @@ async function processPipelineFlawsADO(adoPatchClient, adoOrg, adoProject, adoWo
 }
 
 // ADO-specific policy flaws processing
-async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState } = params;
+async function processPolicyFlawsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState, scanType } = params;
+    
+    // Local references that can be updated
+    let currentExistingWorkItems = existingWorkItems;
+    let currentDuplicateDetectionData = duplicateDetectionData;
     
     let createdCount = 0;
     let reopenedCount = 0;
@@ -1489,7 +1499,7 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
             }
             
             // Check if work item already exists using policy-specific exact matching
-            const existingWorkItem = policyIssueExists(flaw, duplicateDetectionData);
+            const existingWorkItem = policyIssueExists(flaw, currentDuplicateDetectionData);
             
             if (existingWorkItem) {
                 const workItemState = existingWorkItem.workItemState;
@@ -1552,6 +1562,35 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
         }
     }
     
+    // Refresh existing work items and duplicate detection data if new work items were created
+    // This ensures newly created work items are included in mitigation processing
+    if (createdCount > 0) {
+        console.log(`\nRefreshing existing work items list (${createdCount} new work item(s) created)...`);
+        try {
+            currentExistingWorkItems = await getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProject, debug);
+            console.log(`Found ${currentExistingWorkItems.length} existing work items after refresh`);
+            
+            // Re-initialize duplicate detection data structure
+            currentDuplicateDetectionData = {
+                existingFlaws: {}, // flawNumber -> true
+                existingFlawNumbers: {}, // flawNumber -> workItemId
+                existingIssueStates: {} // flawNumber -> workItemState
+            };
+            
+            // Re-populate duplicate detection data with refreshed work items
+            populateDuplicateDetectionData(currentExistingWorkItems, currentDuplicateDetectionData, scanType, debug);
+            
+            if (debug === 'true') {
+                console.log('Duplicate detection data refreshed with newly created work items');
+            }
+        } catch (error) {
+            console.error(`Failed to refresh existing work items: ${error.message}`);
+            if (debug === 'true') {
+                console.error('Continuing with original data, but newly created work items may not be processed for mitigations');
+            }
+        }
+    }
+    
     // Process mitigation status and annotations for existing work items
     console.log(`\nProcessing mitigation status and annotations...`);
     for (const flaw of flaws) {
@@ -1560,8 +1599,8 @@ async function processPolicyFlawsADO(adoPatchClient, adoOrg, adoProject, adoWork
             const annotations = flaw.annotations || [];
             const resolutionStatus = flaw.finding_status?.resolution_status;
             
-            // Find existing work item for this flaw
-            const existingWorkItem = policyIssueExists(flaw, duplicateDetectionData);
+            // Find existing work item for this flaw (using refreshed data)
+            const existingWorkItem = policyIssueExists(flaw, currentDuplicateDetectionData);
             
             if (existingWorkItem) {
                 const workItemState = existingWorkItem.workItemState;
