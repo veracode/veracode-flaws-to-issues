@@ -134,6 +134,7 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     try {
                         const jsonData = JSON.parse(data);
+                        console.log(`Response: ${JSON.stringify(jsonData)}`);
                         resolve(jsonData);
                     } catch (parseError) {
                         reject(new Error(`Failed to parse JSON response: ${parseError.message}`));
