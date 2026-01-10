@@ -11,7 +11,7 @@ const importFlaws = require('./importer').importFlaws;
 const importFlawsToADO = require('./ado-importer').importFlawsToADO;
 const { findApplicationProfile, findSandbox, getAllFindings } = require('./veracode-api');
 
-async function fetchFindingsFromAPI() {
+async function fetchFindingsFromAPI(debug = false) {
     const profileName = core.getInput('profile-name');
     const sandboxName = core.getInput('sandbox-name');
     const apiKeyId = core.getInput('veracode-api-id');
@@ -43,20 +43,20 @@ async function fetchFindingsFromAPI() {
     
     // Step 1: Find application profile (required for both policy and sandbox scans)
     console.log(`\nFinding application profile: ${profileName}`);
-    const profileInfo = await findApplicationProfile(apiKeyId, apiKeySecret, profileName);
+    const profileInfo = await findApplicationProfile(apiKeyId, apiKeySecret, profileName, debug);
     console.log(`✓ Found profile: ${profileInfo.name} (GUID: ${profileInfo.guid})`);
     
     // Step 2: Find sandbox if specified
     let sandboxInfo = null;
     if (sandboxName) {
         console.log(`\nFinding sandbox: ${sandboxName}`);
-        sandboxInfo = await findSandbox(apiKeyId, apiKeySecret, profileInfo.guid, sandboxName);
+        sandboxInfo = await findSandbox(apiKeyId, apiKeySecret, profileInfo.guid, sandboxName, debug);
         console.log(`✓ Found sandbox: ${sandboxInfo.name} (GUID: ${sandboxInfo.guid})`);
     }
     
     // Step 3: Fetch findings
     console.log(`\nFetching findings...`);
-    const findings = await getAllFindings(apiKeyId, apiKeySecret, profileInfo.guid, sandboxInfo?.guid);
+    const findings = await getAllFindings(apiKeyId, apiKeySecret, profileInfo.guid, sandboxInfo?.guid, debug);
     const findingsCount = findings._embedded?.findings?.length || 0;
     console.log(`✓ Fetched ${findingsCount} findings`);
     
@@ -105,7 +105,8 @@ try {
     if (useApi) {
         // Fetch from API - this takes precedence over file input
         console.log('Using API-based fetching (profile-name/sandbox-name provided)');
-        const apiResult = await fetchFindingsFromAPI();
+        const debug = core.getInput('debug');
+        const apiResult = await fetchFindingsFromAPI(debug);
         if (!apiResult || !apiResult.file) {
             throw new Error('Failed to fetch findings from API');
         }

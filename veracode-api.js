@@ -63,7 +63,7 @@ function getProxyConfig(targetUrl) {
  * Make an authenticated Veracode API request using Node's built-in http/https
  * This automatically respects HTTP_PROXY, HTTPS_PROXY, and NO_PROXY environment variables
  */
-async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryParams = {}) {
+async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryParams = {}, debug = false) {
     const urlObj = new URL(url);
     // For signature: use only hostname (no port), Veracode API expects just the hostname
     const host = urlObj.hostname;
@@ -175,9 +175,9 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
 /**
  * Find application profile by name (exact match)
  */
-async function findApplicationProfile(apiKeyId, apiKeySecret, profileName) {
+async function findApplicationProfile(apiKeyId, apiKeySecret, profileName, debug = false) {
     const url = 'https://api.veracode.com/appsec/v1/applications';
-    const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url, { name: profileName });
+    const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url, { name: profileName }, debug);
     
     if (!response._embedded || !response._embedded.applications) {
         throw new Error(`No applications found for profile name: ${profileName}`);
@@ -200,9 +200,9 @@ async function findApplicationProfile(apiKeyId, apiKeySecret, profileName) {
 /**
  * Find sandbox by name (exact match)
  */
-async function findSandbox(apiKeyId, apiKeySecret, applicationGuid, sandboxName) {
+async function findSandbox(apiKeyId, apiKeySecret, applicationGuid, sandboxName, debug = false) {
     const url = `https://api.veracode.com/appsec/v1/applications/${applicationGuid}/sandboxes`;
-    const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url);
+    const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url, {}, debug);
     
     if (!response._embedded || !response._embedded.sandboxes) {
         throw new Error(`No sandboxes found for application: ${applicationGuid}`);
@@ -225,7 +225,7 @@ async function findSandbox(apiKeyId, apiKeySecret, applicationGuid, sandboxName)
 /**
  * Get policy findings for an application
  */
-async function getPolicyFindings(apiKeyId, apiKeySecret, applicationGuid, page = 0, size = 20) {
+async function getPolicyFindings(apiKeyId, apiKeySecret, applicationGuid, page = 0, size = 20, debug = false) {
     console.log(`Getting policy findings for application: ${applicationGuid}`);
     const url = `https://api.veracode.com/appsec/v2/applications/${applicationGuid}/findings`;
     const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url, {
@@ -234,7 +234,7 @@ async function getPolicyFindings(apiKeyId, apiKeySecret, applicationGuid, page =
         include_annot: 'TRUE',
         page: page,
         size: size
-    });
+    }, debug);
     
     return response;
 }
@@ -242,7 +242,7 @@ async function getPolicyFindings(apiKeyId, apiKeySecret, applicationGuid, page =
 /**
  * Get sandbox findings
  */
-async function getSandboxFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid, page = 0, size = 20) {
+async function getSandboxFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid, page = 0, size = 20, debug = false) {
     console.log(`Getting sandbox findings for application: ${applicationGuid} and sandbox: ${sandboxGuid}`);
     const url = `https://api.veracode.com/appsec/v2/applications/${applicationGuid}/findings`;
     const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url, {
@@ -252,7 +252,7 @@ async function getSandboxFindings(apiKeyId, apiKeySecret, applicationGuid, sandb
         context: sandboxGuid,
         page: page,
         size: size
-    });
+    }, debug);
     
     return response;
 }
@@ -260,7 +260,7 @@ async function getSandboxFindings(apiKeyId, apiKeySecret, applicationGuid, sandb
 /**
  * Get all findings (handles pagination)
  */
-async function getAllFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid = null) {
+async function getAllFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid = null, debug = false) {
     const size = 20;
     let page = 0;
     let allFindings = [];
@@ -268,8 +268,8 @@ async function getAllFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGu
     
     do {
         const response = sandboxGuid 
-            ? await getSandboxFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid, page, size)
-            : await getPolicyFindings(apiKeyId, apiKeySecret, applicationGuid, page, size);
+            ? await getSandboxFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid, page, size, debug)
+            : await getPolicyFindings(apiKeyId, apiKeySecret, applicationGuid, page, size, debug);
         
         if (page === 0) {
             totalPages = response.page?.total_pages || 1;
