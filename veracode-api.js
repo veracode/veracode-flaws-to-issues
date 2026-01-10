@@ -2,10 +2,10 @@
 // Veracode API client with HMAC authentication
 //
 
-const crypto = require('crypto');
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const { calculateAuthorizationHeader } = require('./veracode-hmac');
 
 // Try to use proxy agents if available, otherwise fall back to direct connection
 let HttpsProxyAgent, HttpProxyAgent;
@@ -58,54 +58,6 @@ function getProxyConfig(targetUrl) {
     }
 }
 
-/**
- * Generate Veracode API signature for HMAC authentication
- * Based on Veracode API Signing specification
- * Reference: https://docs.veracode.com/r/c_hmac_signing
- */
-function generateVeracodeSignature(apiKeyId, apiKeySecret, method, host, urlPath, queryParams) {
-    const timestamp = Date.now().toString();
-    const nonce = crypto.randomBytes(16).toString('hex');
-    
-    // Decode the API secret from base64 (Veracode API keys are base64-encoded)
-    let decodedSecret;
-    try {
-        decodedSecret = Buffer.from(apiKeySecret, 'base64');
-    } catch (e) {
-        // If decoding fails, try using the secret as-is (in case it's already decoded)
-        decodedSecret = Buffer.from(apiKeySecret, 'utf8');
-    }
-    
-    // Build the data string for signing
-    // Format: id={id}&host={host}&url={url}&method={method}[&params={params}]
-    let dataString = `id=${apiKeyId}&host=${host}&url=${urlPath}&method=${method}`;
-    
-    // Add query parameters if present
-    if (queryParams && Object.keys(queryParams).length > 0) {
-        // Sort parameters by key and build query string (alphabetically sorted)
-        const sortedKeys = Object.keys(queryParams).sort();
-        const paramPairs = sortedKeys
-            .filter(key => queryParams[key] !== undefined && queryParams[key] !== null)
-            .map(key => `${key}=${queryParams[key]}`);
-        const paramsString = paramPairs.join('&');
-        dataString += `&params=${paramsString}`;
-    }
-    
-    // Add nonce and timestamp to create the signature string
-    // Format: {dataString}&nonce={nonce}&timestamp={timestamp}
-    const signatureString = `${dataString}&nonce=${nonce}&timestamp=${timestamp}`;
-    
-    // Create HMAC signature using the decoded secret
-    const signature = crypto.createHmac('sha256', decodedSecret)
-        .update(signatureString)
-        .digest('hex');
-    
-    return {
-        authorization: `VERACODE-HMAC-SHA-256 id=${apiKeyId},ts=${timestamp},nonce=${nonce},sig=${signature}`,
-        timestamp,
-        nonce
-    };
-}
 
 /**
  * Make an authenticated Veracode API request using Node's built-in http/https
@@ -117,14 +69,24 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
     const host = urlObj.hostname;
     const path = urlObj.pathname;
     
-    // Generate signature (pass queryParams as object, not as string)
-    const signature = generateVeracodeSignature(apiKeyId, apiKeySecret, method, host, path, queryParams);
-    
-    // Build query string
+    // Build query string for the URL
     const queryString = Object.keys(queryParams)
         .filter(key => queryParams[key] !== undefined && queryParams[key] !== null)
         .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(queryParams[key])}`)
         .join('&');
+    
+    // Build query string for signature (without encoding, as it goes in the data string)
+    const queryStringForSignature = Object.keys(queryParams)
+        .filter(key => queryParams[key] !== undefined && queryParams[key] !== null)
+        .sort() // Sort alphabetically for signature
+        .map(key => `${key}=${queryParams[key]}`)
+        .join('&');
+    
+    // Format query string for signature: add ? prefix if params exist
+    const urlQueryParams = queryStringForSignature ? `?${queryStringForSignature}` : '';
+    
+    // Generate authorization header using the same method as uploadandscan-action
+    const authorization = calculateAuthorizationHeader(apiKeyId, apiKeySecret, host, path, urlQueryParams, method);
     
     const fullPath = queryString ? `${path}?${queryString}` : path;
     
@@ -142,7 +104,7 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
             path: fullPath,
             method: method,
             headers: {
-                'Authorization': signature.authorization,
+                'Authorization': authorization,
                 'Content-Type': 'application/json',
                 'Host': urlObj.host  // Use full host:port for the Host header
             }
