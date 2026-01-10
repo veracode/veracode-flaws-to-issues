@@ -9,13 +9,14 @@ const path = require('path');
 
 const importFlaws = require('./importer').importFlaws;
 const importFlawsToADO = require('./ado-importer').importFlawsToADO;
-const { findApplicationProfile, findSandbox, getAllFindings } = require('./veracode-api');
+const { findApplicationProfile, findSandbox, getAllFindings, getAllSCAFindings } = require('./veracode-api');
 
 async function fetchFindingsFromAPI(debug = false) {
     const profileName = core.getInput('profile-name');
     const sandboxName = core.getInput('sandbox-name');
     const apiKeyId = core.getInput('veracode-api-id');
     const apiKeySecret = core.getInput('veracode-api-key');
+    const includeSCA = core.getInput('include-sca') === 'true';
     
     // Validate inputs
     if (!profileName && !sandboxName) {
@@ -40,6 +41,7 @@ async function fetchFindingsFromAPI(debug = false) {
     console.log('=== Fetching Veracode Findings via API ===');
     console.log(`Input profile name: ${profileName || 'N/A'}`);
     console.log(`Input sandbox name: ${sandboxName || 'N/A'}`);
+    console.log(`Include SCA: ${includeSCA}`);
     
     // Step 1: Find application profile (required for both policy and sandbox scans)
     console.log(`\nFinding application profile: ${profileName}`);
@@ -54,11 +56,21 @@ async function fetchFindingsFromAPI(debug = false) {
         console.log(`✓ Found sandbox: ${sandboxInfo.name} (GUID: ${sandboxInfo.guid})`);
     }
     
-    // Step 3: Fetch findings
-    console.log(`\nFetching findings...`);
+    // Step 3: Fetch static findings
+    console.log(`\nFetching static findings...`);
     const findings = await getAllFindings(apiKeyId, apiKeySecret, profileInfo.guid, sandboxInfo?.guid, debug);
     const findingsCount = findings._embedded?.findings?.length || 0;
-    console.log(`✓ Fetched ${findingsCount} findings`);
+    console.log(`✓ Fetched ${findingsCount} static findings`);
+    
+    // Step 4: Fetch SCA findings if requested
+    let scaFindings = null;
+    let scaFindingsCount = 0;
+    if (includeSCA) {
+        console.log(`\nFetching SCA findings...`);
+        scaFindings = await getAllSCAFindings(apiKeyId, apiKeySecret, profileInfo.guid, sandboxInfo?.guid, debug);
+        scaFindingsCount = scaFindings._embedded?.findings?.length || 0;
+        console.log(`✓ Fetched ${scaFindingsCount} SCA findings`);
+    }
     
     // Display summary
     console.log('\n=== Summary ===');
@@ -72,17 +84,29 @@ async function fetchFindingsFromAPI(debug = false) {
         console.log(`Found sandbox name: ${sandboxInfo.name}`);
         console.log(`Found sandbox GUID: ${sandboxInfo.guid}`);
     }
-    console.log(`Number of findings: ${findingsCount}`);
+    console.log(`Number of static findings: ${findingsCount}`);
+    if (includeSCA) {
+        console.log(`Number of SCA findings: ${scaFindingsCount}`);
+    }
     console.log('================\n');
     
-    // Write findings to a temporary file
+    // Write static findings to a temporary file
     const tempFile = path.join(process.env.RUNNER_TEMP || '/tmp', `veracode-findings-${Date.now()}.json`);
     fs.writeFileSync(tempFile, JSON.stringify(findings, null, 2));
-    console.log(`Findings written to: ${tempFile}`);
+    console.log(`Static findings written to: ${tempFile}`);
     
-    // Return both file path and sandbox name (if applicable)
+    // Write SCA findings to a separate file if requested
+    let scaFile = null;
+    if (includeSCA && scaFindings) {
+        scaFile = path.join(process.env.RUNNER_TEMP || '/tmp', `veracode-sca-findings-${Date.now()}.json`);
+        fs.writeFileSync(scaFile, JSON.stringify(scaFindings, null, 2));
+        console.log(`SCA findings written to: ${scaFile}`);
+    }
+    
+    // Return file paths and sandbox name
     return {
         file: tempFile,
+        scaFile: scaFile,
         sandboxName: sandboxInfo?.name || null
     };
 }
@@ -102,16 +126,20 @@ try {
     const useApi = profileName && profileName.trim() !== '' || sandboxName && sandboxName.trim() !== '';
     
     let sandboxNameForTag = null;
+    let scaFileForProcessing = null;
+    let apiResult = null;
+    
     if (useApi) {
         // Fetch from API - this takes precedence over file input
         console.log('Using API-based fetching (profile-name/sandbox-name provided)');
         const debug = core.getInput('debug');
-        const apiResult = await fetchFindingsFromAPI(debug);
+        apiResult = await fetchFindingsFromAPI(debug);
         if (!apiResult || !apiResult.file) {
             throw new Error('Failed to fetch findings from API');
         }
         resultsFile = apiResult.file;
         sandboxNameForTag = apiResult.sandboxName; // Will be null if not a sandbox scan
+        scaFileForProcessing = apiResult.scaFile; // Will be null if include-sca is false
     } else {
         // Use file input (may use default value from action.yml)
         console.log('Using file-based input (scan-results-json)');
@@ -126,12 +154,13 @@ try {
     const source_base_path_3 = core.getInput('source_base_path_3');
     const fail_build = core.getInput('fail_build');
     const autoCloseFindings = core.getInput('autoCloseFindings');
+    const includeSCA = core.getInput('include-sca') === 'true';
     const debug = core.getInput('debug')
     let commit_hash = core.getInput('commitHash');
     if ( commit_hash == "" ){
         commit_hash = process.env.GITHUB_SHA;
     }
-    console.log('dts_type: '+dts_type+'\nresultsFile: '+resultsFile+'\nwaitTime: '+waitTime+'\nsource_base_path_1: '+source_base_path_1+'\nsource_base_path_2: '+source_base_path_2+'\nsource_base_path_3: '+source_base_path_3+'\ncommit_hash: '+commit_hash+'\nautoCloseFindings: '+autoCloseFindings+'\ndebug: '+debug)
+    console.log('dts_type: '+dts_type+'\nresultsFile: '+resultsFile+'\nwaitTime: '+waitTime+'\nsource_base_path_1: '+source_base_path_1+'\nsource_base_path_2: '+source_base_path_2+'\nsource_base_path_3: '+source_base_path_3+'\ncommit_hash: '+commit_hash+'\nautoCloseFindings: '+autoCloseFindings+'\nincludeSCA: '+includeSCA+'\ndebug: '+debug)
 
     if (dts_type === 'ADO') {
         // Validate ADO specific required parameters
@@ -159,6 +188,8 @@ try {
         // Import flaws to Azure DevOps
         importFlawsToADO({
             resultsFile: resultsFile,
+            scaFile: scaFileForProcessing,
+            includeSCA: includeSCA,
             adoPat: ado_pat,
             adoOrg: ado_org,
             adoProject: ado_project,
@@ -237,6 +268,8 @@ try {
         // do the thing
         importFlaws(
             {resultsFile: resultsFile,
+             scaFile: scaFileForProcessing,
+             includeSCA: includeSCA,
              githubOwner: owner,
              githubRepo: repo,
              githubToken: token,

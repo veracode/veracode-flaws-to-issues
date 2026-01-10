@@ -48,6 +48,10 @@ inputs:
     description: 'Automatically close issues/work items that are no longer present in scan results (true | false)'
     required: false
     default: 'false'
+  include-sca:
+    description: 'Include SCA (Software Composition Analysis) findings in addition to static scan findings (true | false)'
+    required: false
+    default: 'false'
   debug:
     description: enable debug logging
     required: false

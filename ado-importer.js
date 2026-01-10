@@ -5,6 +5,8 @@ const fs = require('fs');
 async function importFlawsToADO(params) {
     const {
         resultsFile,
+        scaFile,
+        includeSCA,
         adoPat,
         adoOrg,
         adoProject,
@@ -19,7 +21,8 @@ async function importFlawsToADO(params) {
         commit_hash,
         fail_build,
         debug,
-        autoCloseFindings
+        autoCloseFindings,
+        sandboxName
     } = params;
 
     // Read and parse the results file
@@ -159,7 +162,7 @@ async function importFlawsToADO(params) {
             adoCloseState,
             adoReopenState,
             scanType: 'pipeline',
-            sandboxName: params.sandboxName
+            sandboxName: sandboxName
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
@@ -181,11 +184,39 @@ async function importFlawsToADO(params) {
             adoCloseState,
             adoReopenState,
             scanType: 'policy',
-            sandboxName: params.sandboxName
+            sandboxName: sandboxName
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
         skippedCount = result.skippedCount;
+        closedCount = result.closedCount;
+    }
+
+    // Process SCA findings if requested
+    if (includeSCA && scaFile && fs.existsSync(scaFile)) {
+        console.log('\n=== Processing SCA Findings ===');
+        const scaData = JSON.parse(fs.readFileSync(scaFile, 'utf8'));
+        const scaResult = await processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, scaData, {
+            source_base_path_1,
+            source_base_path_2,
+            source_base_path_3,
+            commit_hash,
+            waitTime,
+            fail_build,
+            debug,
+            existingWorkItems,
+            processedFlawIds,
+            duplicateDetectionData,
+            adoOpenState,
+            adoCloseState,
+            adoReopenState,
+            sandboxName: sandboxName,
+            autoCloseFindings: autoCloseFindings
+        });
+        createdCount += scaResult.createdCount;
+        reopenedCount += scaResult.reopenedCount;
+        skippedCount += scaResult.skippedCount;
+        closedCount += scaResult.closedCount;
     }
 
     // Close work items that are no longer present in the scan results
@@ -435,10 +466,19 @@ function findExistingWorkItem(existingWorkItems, veracodeFlawId) {
         const tags = workItem.fields['System.Tags'] || '';
         
         // Check if title contains Veracode and matches core parts
-        if (title.toLowerCase().includes('veracode') && title.toLowerCase().includes('flaw')) {
-            return coreParts.every(part => 
-                title.toLowerCase().includes(part.toLowerCase())
-            );
+        // Handle both static scan (contains "flaw") and SCA (contains "SCA")
+        if (title.toLowerCase().includes('veracode')) {
+            if (title.toLowerCase().includes('sca')) {
+                // For SCA findings, check if CVE and component match
+                return coreParts.every(part => 
+                    title.toLowerCase().includes(part.toLowerCase())
+                );
+            } else if (title.toLowerCase().includes('flaw')) {
+                // For static scan findings
+                return coreParts.every(part => 
+                    title.toLowerCase().includes(part.toLowerCase())
+                );
+            }
         }
         
         return false;
@@ -447,9 +487,16 @@ function findExistingWorkItem(existingWorkItems, veracodeFlawId) {
 
 function extractCoreFlawParts(veracodeFlawId) {
     // Extract the key identifying parts from the flaw ID
-    // Remove the [VID:] wrapper and split by colons
-    const cleanId = veracodeFlawId.replace(/^\[VID:/, '').replace(/\]$/, '');
-    return cleanId.split(':').filter(part => part && part !== 'Unknown');
+    // Handle both static scan format [VID:flawNumber] and SCA format Veracode SCA: CVE-NAME - COMPONENT
+    if (veracodeFlawId.startsWith('Veracode SCA:')) {
+        // For SCA: extract CVE name and component filename
+        const parts = veracodeFlawId.replace('Veracode SCA:', '').trim().split(' - ');
+        return parts.filter(part => part && part !== 'Unknown');
+    } else {
+        // For static scans: Remove the [VID:] wrapper and split by colons
+        const cleanId = veracodeFlawId.replace(/^\[VID:/, '').replace(/\]$/, '');
+        return cleanId.split(':').filter(part => part && part !== 'Unknown');
+    }
 }
 
 function validateNoDuplicates(existingWorkItems, veracodeFlawId, debug) {
@@ -1747,6 +1794,325 @@ async function processPolicyFlawsADO(adoPatchClient, adoQueryClient, adoClient, 
     return { createdCount, reopenedCount, skippedCount, closedCount };
 }
 
+/**
+ * Create a unique Veracode SCA finding ID for ADO
+ */
+function createSCAFindingID(finding) {
+    const cveName = finding.finding_details?.cve?.name || 'Unknown';
+    const componentFilename = finding.finding_details?.component_filename || 'Unknown';
+    return `Veracode SCA: ${cveName} - ${componentFilename}`;
+}
+
+/**
+ * Format SCA finding description for ADO
+ */
+function formatSCADescriptionHTML(finding) {
+    const componentFilename = finding.finding_details?.component_filename || 'Unknown';
+    const cveName = finding.finding_details?.cve?.name || 'Unknown';
+    const description = finding.description || 'No description available';
+    const cvss = finding.finding_details?.cve?.cvss || 'N/A';
+    const severity = finding.finding_details?.cve?.severity || 'Unknown';
+    const cveHref = finding.finding_details?.cve?.href;
+    const exploitability = finding.finding_details?.cve?.exploitability;
+    const licenses = finding.finding_details?.licenses || [];
+
+    let desc = `<b>${componentFilename} - ${cveName}</b><br><br>`;
+    desc += `${description}<br><br>`;
+    desc += `<b>CVSS Score:</b> ${cvss} - ${severity}<br><br>`;
+
+    // Add EPSS information if available
+    if (exploitability?.epss_percentile !== undefined && exploitability?.epss_score !== undefined) {
+        desc += `<b>EPSS Percentile:</b> ${exploitability.epss_percentile}<br>`;
+        desc += `<b>EPSS Score:</b> ${exploitability.epss_score}<br><br>`;
+    }
+
+    // Add CVE link if available
+    if (cveHref) {
+        desc += `<b>CVE Link:</b> <a href="${cveHref}">${cveHref}</a><br><br>`;
+    }
+
+    // Add license information if available
+    if (licenses.length > 0) {
+        const licenseIds = licenses.map(l => l.license_id).filter(Boolean);
+        if (licenseIds.length > 0) {
+            desc += `<b>License:</b> ${licenseIds.join(', ')}<br><br>`;
+        }
+    }
+
+    return desc;
+}
+
+/**
+ * Map CVE severity to ADO severity
+ */
+function mapSCASeverity(cveSeverity) {
+    const severityMap = {
+        'Very High': '1 - Critical',
+        'High': '2 - High',
+        'Medium': '3 - Medium',
+        'Low': '4 - Low',
+        'Very Low': '5 - Low',
+        'Informational': '5 - Low'
+    };
+    return severityMap[cveSeverity] || '3 - Medium';
+}
+
+/**
+ * Process SCA findings for ADO
+ */
+async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, scaData, params) {
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState, sandboxName } = params;
+    
+    let createdCount = 0;
+    let reopenedCount = 0;
+    let skippedCount = 0;
+    let closedCount = 0;
+    
+    if (!scaData._embedded || !scaData._embedded.findings) {
+        console.log('No SCA findings found in input data');
+        return { createdCount, reopenedCount, skippedCount, closedCount };
+    }
+    
+    const findings = scaData._embedded.findings;
+    console.log(`Processing ${findings.length} SCA findings for ADO`);
+    
+    for (const finding of findings) {
+        try {
+            // Only process findings that are OPEN and violate policy
+            if (finding.finding_status?.status !== 'OPEN' || !finding.violates_policy) {
+                if (finding.finding_status?.status !== 'OPEN') {
+                    console.log(`Skipping SCA finding - status is ${finding.finding_status?.status}, not OPEN`);
+                } else {
+                    console.log(`Skipping SCA finding - violates_policy is ${finding.violates_policy}, not true`);
+                }
+                continue;
+            }
+
+            const veracodeFlawId = createSCAFindingID(finding);
+            
+            // Track this finding as processed
+            processedFlawIds.add(veracodeFlawId);
+            
+            if (debug === 'true') {
+                console.log(`Processing SCA finding with Veracode ID: ${veracodeFlawId}`);
+            }
+            
+            // Check if work item already exists
+            const existingWorkItem = findExistingWorkItem(existingWorkItems, veracodeFlawId);
+            
+            if (existingWorkItem) {
+                const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
+                const workItemId = existingWorkItem.id;
+                console.log(`Work item already exists for SCA finding (ID: ${workItemId}, State: ${workItemState})`);
+                
+                if (workItemState === 'Closed' || workItemState === 'Resolved' || workItemState === 'Done') {
+                    console.log(`Reopening closed work item ${workItemId} for SCA finding`);
+                    await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
+                        source_base_path_1,
+                        source_base_path_2,
+                        source_base_path_3,
+                        commit_hash,
+                        debug,
+                        adoReopenState,
+                        sandboxName
+                    });
+                    reopenedCount++;
+                } else {
+                    console.log(`Work item ${workItemId} is already open (State: ${workItemState}), skipping creation`);
+                    skippedCount++;
+                }
+            } else {
+                // Create new work item
+                const componentFilename = finding.finding_details?.component_filename || 'Unknown';
+                const cveName = finding.finding_details?.cve?.name || 'Unknown';
+                const title = `Veracode SCA - ${cveName} - ${componentFilename}`;
+                const description = formatSCADescriptionHTML(finding);
+                const cveSeverity = finding.finding_details?.cve?.severity || 'Medium';
+                const severity = mapSCASeverity(cveSeverity);
+                
+                // Build tags
+                let tags = 'Veracode-SCA';
+                if (cveName !== 'Unknown') {
+                    tags += `;CVE-${cveName}`;
+                }
+                tags += `;${cveSeverity}`;
+                
+                // Add sandbox tag if sandbox name is provided
+                if (sandboxName) {
+                    tags += `;sandbox-${sandboxName}`;
+                }
+                
+                // Create work item payload
+                const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/$${adoWorkItemType}?api-version=7.0`;
+                let payload;
+                
+                if (String(adoWorkItemType).toLowerCase() === 'bug') {
+                    payload = [
+                        {
+                            op: 'add',
+                            path: '/fields/System.Title',
+                            value: title
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/Microsoft.VSTS.TCM.ReproSteps',
+                            value: description
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/System.Description',
+                            value: description
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/System.Tags',
+                            value: tags
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/Microsoft.VSTS.Common.Severity',
+                            value: severity
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/System.State',
+                            value: adoOpenState || 'New'
+                        }
+                    ];
+                } else {
+                    payload = [
+                        {
+                            op: 'add',
+                            path: '/fields/System.Title',
+                            value: title
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/System.Description',
+                            value: description
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/System.Tags',
+                            value: tags
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/Microsoft.VSTS.Common.Severity',
+                            value: severity
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/System.State',
+                            value: adoOpenState || 'To Do'
+                        }
+                    ];
+                }
+                
+                try {
+                    const response = await adoPatchClient.post(url, payload, {
+                        headers: {
+                            'Content-Type': 'application/json-patch+json'
+                        }
+                    });
+                    
+                    console.log(`Successfully created work item ${response.data.id} for SCA finding`);
+                    createdCount++;
+                } catch (error) {
+                    console.error(`Error creating SCA work item: ${error.message}`);
+                    if (error.response) {
+                        console.error('Status:', error.response.status);
+                        console.error('Data:', error.response.data);
+                    }
+                    if (fail_build === 'true') {
+                        throw error;
+                    }
+                }
+            }
+            
+            // Wait between API calls to avoid rate limiting
+            await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+        } catch (error) {
+            if (debug === 'true') {
+                console.error('Detailed error information for SCA finding:');
+                console.error('Error message:', error.message);
+                if (error.response) {
+                    console.error('Response status:', error.response.status);
+                    console.error('Response data:', error.response.data);
+                }
+            }
+            core.error(`Failed to process SCA finding: ${error.message}`);
+            if (fail_build === 'true') {
+                throw error;
+            }
+        }
+    }
+    
+    // Close work items that are no longer present in scan results
+    if (params.autoCloseFindings === 'true' || params.autoCloseFindings === true) {
+        console.log(`\nChecking for SCA work items to close (findings not found in current scan)...`);
+        
+        const activeWorkItems = existingWorkItems.filter(wi => {
+            const state = wi.fields['System.State'] || 'Unknown';
+            const tags = wi.fields['System.Tags'] || '';
+            return (state !== 'Done' && state !== 'Resolved' && state !== 'Removed') && tags.includes('Veracode-SCA');
+        });
+        
+        for (const workItem of activeWorkItems) {
+            const title = workItem.fields['System.Title'] || '';
+            // Extract CVE and component from title
+            // Title format: "Veracode SCA - CVE-NAME - COMPONENT-FILENAME [VID-SCA:CVE-NAME:COMPONENT-FILENAME]"
+            const titleMatch = title.match(/Veracode SCA - (.+?) - (.+?)(?:\s+\[VID-SCA|$)/);
+            if (titleMatch) {
+                const cveName = titleMatch[1];
+                const componentFilename = titleMatch[2].trim();
+                const veracodeFlawId = `Veracode SCA: ${cveName} - ${componentFilename}`;
+                
+                if (!processedFlawIds.has(veracodeFlawId)) {
+                    console.log(`Closing work item ${workItem.id} - SCA finding no longer found in scan: "${title}"`);
+                    
+                    try {
+                        const closeUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItem.id}?api-version=7.0`;
+                        const closePayload = [
+                            {
+                                op: 'replace',
+                                path: '/fields/System.State',
+                                value: adoCloseState || 'Done'
+                            },
+                            {
+                                op: 'add',
+                                path: '/fields/System.History',
+                                value: `Closed by Veracode automation - SCA finding no longer present in scan results`
+                            }
+                        ];
+                        
+                        await adoPatchClient.patch(closeUrl, closePayload, {
+                            headers: {
+                                'Content-Type': 'application/json-patch+json'
+                            }
+                        });
+                        
+                        closedCount++;
+                        
+                        if (waitTime > 0) {
+                            await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                        }
+                    } catch (error) {
+                        console.error(`Failed to close work item ${workItem.id}: ${error.message}`);
+                    }
+                }
+            }
+        }
+        
+        if (closedCount > 0) {
+            console.log(`Closed ${closedCount} SCA work items that are no longer present in scan results`);
+        }
+    }
+    
+    return { createdCount, reopenedCount, skippedCount, closedCount };
+}
+
 module.exports = {
-    importFlawsToADO
+    importFlawsToADO,
+    processSCAFindingsADO
 }; 

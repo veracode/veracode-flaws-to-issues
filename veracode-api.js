@@ -297,12 +297,86 @@ async function getAllFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGu
     };
 }
 
+/**
+ * Get SCA findings for an application (policy)
+ */
+async function getSCAFindings(apiKeyId, apiKeySecret, applicationGuid, page = 0, size = 20, debug = false) {
+    console.log(`Getting SCA findings for application: ${applicationGuid}`);
+    const url = `https://api.veracode.com/appsec/v2/applications/${applicationGuid}/findings`;
+    const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url, {
+        scan_type: 'SCA',
+        page: page,
+        size: size
+    }, debug);
+    
+    return response;
+}
+
+/**
+ * Get SCA findings for a sandbox
+ */
+async function getSandboxSCAFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid, page = 0, size = 20, debug = false) {
+    console.log(`Getting SCA findings for application: ${applicationGuid} and sandbox: ${sandboxGuid}`);
+    const url = `https://api.veracode.com/appsec/v2/applications/${applicationGuid}/findings`;
+    const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url, {
+        scan_type: 'SCA',
+        context: sandboxGuid,
+        page: page,
+        size: size
+    }, debug);
+    
+    return response;
+}
+
+/**
+ * Get all SCA findings (handles pagination)
+ */
+async function getAllSCAFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid = null, debug = false) {
+    const size = 20;
+    let page = 0;
+    let allFindings = [];
+    let totalPages = 1;
+    
+    do {
+        const response = sandboxGuid 
+            ? await getSandboxSCAFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid, page, size, debug)
+            : await getSCAFindings(apiKeyId, apiKeySecret, applicationGuid, page, size, debug);
+        
+        if (page === 0) {
+            totalPages = response.page?.total_pages || 1;
+        }
+        
+        if (response._embedded && response._embedded.findings) {
+            allFindings = allFindings.concat(response._embedded.findings);
+        }
+        
+        page++;
+    } while (page < totalPages);
+    
+    // Return in the same format as a single page response
+    return {
+        _embedded: {
+            findings: allFindings
+        },
+        page: {
+            size: allFindings.length,
+            total_elements: allFindings.length,
+            total_pages: 1,
+            number: 0
+        },
+        _links: sandboxGuid ? {} : {}
+    };
+}
+
 module.exports = {
     findApplicationProfile,
     findSandbox,
     getPolicyFindings,
     getSandboxFindings,
     getAllFindings,
+    getSCAFindings,
+    getSandboxSCAFindings,
+    getAllSCAFindings,
     veracodeApiRequest
 };
 

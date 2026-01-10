@@ -6,6 +6,7 @@ const fs = require('fs');
 const core = require('@actions/core');
 const processPipelineFlaws = require('./pipeline').processPipelineFlaws;
 const processPolicyFlaws = require('./policy').processPolicyFlaws;
+const processSCAFindings = require('./sca-github').processSCAFindings;
 const label = require('./label');
 
 
@@ -14,6 +15,8 @@ const label = require('./label');
 //
 async function importFlaws(options) {
     const resultsFile = options.resultsFile;
+    const scaFile = options.scaFile;
+    const includeSCA = options.includeSCA === 'true' || options.includeSCA === true;
     const githubOwner = options.githubOwner;
     const githubRepo = options.githubRepo;
     const githubToken = options.githubToken;
@@ -101,6 +104,15 @@ async function importFlaws(options) {
             console.log(`Done.  ${count} flaws processed.`);
             internal_flaw_count = count
         })
+    }
+
+    // Process SCA findings if requested
+    if (includeSCA && scaFile && fs.existsSync(scaFile)) {
+        console.log('\n=== Processing SCA Findings ===');
+        const scaData = JSON.parse(fs.readFileSync(scaFile, 'utf8'));
+        const scaCount = await processSCAFindings(options, scaData, autoCloseFindings);
+        console.log(`Done. ${scaCount} SCA findings processed.`);
+        internal_flaw_count += scaCount;
     }
 
     // add break build functionality

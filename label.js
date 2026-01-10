@@ -56,6 +56,12 @@ const otherLabels = [
         'name': 'Veracode Policy Scan',
         'color': '666698',
         'description': 'A Veracode Flaw found during a Policy or Sandbox Scan'
+    },
+    {
+        'id': 'sca',
+        'name': 'Veracode-SCA',
+        'color': '8b5cf6',
+        'description': 'A Veracode Software Composition Analysis (SCA) finding'
     }
 ];
 
