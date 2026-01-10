@@ -137,6 +137,8 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
                         console.log(`Response: ${JSON.stringify(jsonData)}`);
                         resolve(jsonData);
                     } catch (parseError) {
+                        const jsonData = JSON.parse(data);
+                        console.log(`Error: ${JSON.stringify(jsonData)}`);
                         reject(new Error(`Failed to parse JSON response: ${parseError.message}`));
                     }
                 } else {
