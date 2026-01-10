@@ -53,6 +53,44 @@ For a Policy or Sandbox scan, you can either:
 
 Note that when Issues are added, a tag is inserted into the Issue title.  The tag is of the form `[VID:<flaw_number>]`.  This tag is used to prevent duplicate issues from getting created.
 
+## Importing SCA (Software Composition Analysis) Findings
+
+The action supports importing SCA findings in addition to static scan findings. SCA findings identify vulnerable third-party components and dependencies in your application.
+
+**Important**: SCA findings can only be imported when using API-based fetching (with `profile-name` and `veracode-api-id`/`veracode-api-key`). File-based SCA import is not currently supported.
+
+### How SCA Findings Work
+
+When `include-sca: true` is set along with API-based fetching:
+
+1. **API Calls**: The action fetches SCA findings using `scan_type=SCA` (no `include_annot` or `violates_policy` parameters needed)
+2. **Filtering**: Only findings where `finding_status.status === "OPEN"` AND `violates_policy === true` are processed
+3. **Issue/Work Item Creation**: Each SCA finding creates a separate issue or work item
+
+### SCA Finding Format
+
+**Title**: `Veracode SCA - {CVE-NAME} - {COMPONENT-FILENAME}`
+
+**Body includes**:
+- Component filename and CVE name
+- Vulnerability description
+- CVSS score and severity
+- EPSS percentile and score (if available)
+- CVE link (if available)
+- License information (if available)
+
+**Labels/Tags**:
+- `Veracode-SCA` (always added)
+- `CVE-{CVE-NAME}` (CVE identifier)
+- Severity label (based on CVE severity: Very High, High, Medium, Low, etc.)
+- `sandbox-{SANDBOX_NAME}` (if findings come from a sandbox)
+
+### SCA Finding Lifecycle
+
+- **New findings**: Creates new issues/work items
+- **Existing findings**: Reopens closed issues/work items if they reappear
+- **Resolved findings**: Closes issues/work items when `finding_status.status === "CLOSED"` or when findings are no longer present in scan results (if `autoCloseFindings: true`)
+
 ### Annotation-Based Workflow (Policy Scans Only)
 
 For Policy scans, the action supports an advanced annotation-based workflow that allows security teams to manage issue lifecycle through Veracode annotations. This feature is only available for Policy scans and requires:
@@ -130,7 +168,9 @@ As this job needs to run after a Veracode pipeline/sandbox/policy scan, the scan
 
 ### `scan-results-json`
 
-**Required** The path to the scan results file in JSON format.  The scan type, Pipeline or Policy/Sandbox, is auto-detected based on the input file and imported issues are labeled appropriately.
+**Required** (when not using API-based fetching) The path to the scan results file in JSON format.  The scan type, Pipeline or Policy/Sandbox, is auto-detected based on the input file and imported issues are labeled appropriately.
+
+**Note:** This parameter is optional when using API-based fetching with `profile-name` or `sandbox-name`. If `profile-name` or `sandbox-name` is provided, the action will fetch findings directly from the Veracode API instead of using this file.
 |Default value |  `"filtered_results.json"`|
 --- | ---
 
@@ -161,6 +201,53 @@ source-base-path-2: "^WEB-INF:src/main/webapp/WEB-INF"
 ### `autoCloseFindings`
 
 **Optional** Controls whether issues/work items that are no longer present in scan results should be automatically closed. When set to `true`, the action will close issues/work items that were previously created but are no longer found in the current scan results. This helps keep your issue tracker clean by removing resolved security findings.
+
+**Valid values:** `"true"` or `"false"` (as strings) or `true` or `false` (as booleans)
+| Default value | `"false"` |
+|--- | ---
+
+### Veracode API inputs (for API-based fetching)
+
+### `profile-name`
+
+**Optional** Veracode application profile name. When provided along with `veracode-api-id` and `veracode-api-key`, the action will fetch findings directly from the Veracode API instead of using a file.
+
+**Note:** This parameter is required when using API-based fetching. It is not needed when using `scan-results-json` with a file.
+| Default value | `""` |
+|--- | ---
+
+### `sandbox-name`
+
+**Optional** Veracode sandbox name. When provided along with `profile-name`, the action will fetch findings from the specified sandbox instead of the policy scan.
+
+**Note:** This parameter requires `profile-name` to be specified. When sandbox findings are loaded, issues and work items will be automatically tagged with `sandbox-{SANDBOX_NAME}`.
+| Default value | `""` |
+|--- | ---
+
+### `veracode-api-id`
+
+**Required** (when using `profile-name` or `sandbox-name`) Your Veracode API ID for authenticating API requests. This should be stored as a GitHub secret for security.
+
+**Note:** This parameter is required when using API-based fetching. It is not needed when using `scan-results-json` with a file.
+| Default value | `""` |
+|--- | ---
+
+### `veracode-api-key`
+
+**Required** (when using `profile-name` or `sandbox-name`) Your Veracode API Key (secret) for authenticating API requests. This should be stored as a GitHub secret for security.
+
+**Note:** This parameter is required when using API-based fetching. It is not needed when using `scan-results-json` with a file.
+| Default value | `""` |
+|--- | ---
+
+### `include-sca`
+
+**Optional** Include SCA (Software Composition Analysis) findings in addition to static scan findings. When set to `true`, the action will fetch and process SCA findings that identify vulnerable third-party components and dependencies.
+
+**Important:** 
+- SCA findings can only be imported when using API-based fetching (with `profile-name` and API credentials)
+- File-based SCA import is not currently supported
+- Only SCA findings where `finding_status.status === "OPEN"` AND `violates_policy === true` will be processed
 
 **Valid values:** `"true"` or `"false"` (as strings) or `true` or `false` (as booleans)
 | Default value | `"false"` |
@@ -384,6 +471,27 @@ The PAT should be scoped to the specific project where work items will be create
           autoCloseFindings: 'true'  # Optional, closes issues no longer present in scan
 ```
 
+#### Policy/Sandbox scan with SCA findings (using API-based fetching)
+
+```yaml
+  . . .
+# This step will fetch both static and SCA findings directly from Veracode API and import them as issues
+  import-policy-and-sca-flaws:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: import flaws as issues
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        with:
+          dts_type: 'GITHUB'  # Optional, this is the default
+          profile-name: 'NodeGoat'  # Your Veracode application profile name
+          veracode-api-id: ${{ secrets.VERACODE_API_ID }}
+          veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          include-sca: 'true'  # Include SCA findings
+          autoCloseFindings: 'true'  # Optional, closes issues no longer present in scan
+```
+
 #### Policy/Sandbox scan with Sandbox (using API-based fetching)
 
 ```yaml
@@ -402,6 +510,28 @@ The PAT should be scoped to the specific project where work items will be create
           sandbox-name: 'Feature123'  # Your Veracode sandbox name
           veracode-api-id: ${{ secrets.VERACODE_API_ID }}
           veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          autoCloseFindings: 'true'  # Optional, closes issues no longer present in scan
+```
+
+#### Policy/Sandbox scan with Sandbox and SCA findings (using API-based fetching)
+
+```yaml
+  . . .
+# This step will fetch both static and SCA findings from a sandbox and import them as issues
+  import-sandbox-and-sca-flaws:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: import sandbox and SCA flaws as issues
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        with:
+          dts_type: 'GITHUB'  # Optional, this is the default
+          profile-name: 'NodeGoat'  # Your Veracode application profile name
+          sandbox-name: 'Feature123'  # Your Veracode sandbox name
+          veracode-api-id: ${{ secrets.VERACODE_API_ID }}
+          veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          include-sca: 'true'  # Include SCA findings
           autoCloseFindings: 'true'  # Optional, closes issues no longer present in scan
 ```
 
@@ -532,6 +662,29 @@ The PAT should be scoped to the specific project where work items will be create
           autoCloseFindings: 'true'  # Optional, closes work items no longer present in scan
 ```
 
+#### Policy/Sandbox scan with ADO and SCA findings (using API-based fetching)
+
+```yaml
+  . . .
+# This step will fetch both static and SCA findings directly from Veracode API and import them as ADO work items
+  import-policy-and-sca-flaws-ado:
+    runs-on: ubuntu-latest
+    steps:
+      - name: import flaws as ADO work items
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        with:
+          dts_type: 'ADO'
+          profile-name: 'NodeGoat'  # Your Veracode application profile name
+          veracode-api-id: ${{ secrets.VERACODE_API_ID }}
+          veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          include-sca: 'true'  # Include SCA findings
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+          ADO_ORG: 'your-organization'
+          ADO_PROJECT: 'your-project'
+          ADO_WORK_ITEM_TYPE: 'Bug'
+          autoCloseFindings: 'true'  # Optional, closes work items no longer present in scan
+```
+
 #### Policy/Sandbox scan with ADO and Sandbox (using API-based fetching)
 
 ```yaml
@@ -548,6 +701,30 @@ The PAT should be scoped to the specific project where work items will be create
           sandbox-name: 'Feature123'  # Your Veracode sandbox name
           veracode-api-id: ${{ secrets.VERACODE_API_ID }}
           veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+          ADO_ORG: 'your-organization'
+          ADO_PROJECT: 'your-project'
+          ADO_WORK_ITEM_TYPE: 'Bug'
+          autoCloseFindings: 'true'  # Optional, closes work items no longer present in scan
+```
+
+#### Policy/Sandbox scan with ADO, Sandbox, and SCA findings (using API-based fetching)
+
+```yaml
+  . . .
+# This step will fetch both static and SCA findings from a sandbox and import them as ADO work items
+  import-sandbox-and-sca-flaws-ado:
+    runs-on: ubuntu-latest
+    steps:
+      - name: import sandbox and SCA flaws as ADO work items
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        with:
+          dts_type: 'ADO'
+          profile-name: 'NodeGoat'  # Your Veracode application profile name
+          sandbox-name: 'Feature123'  # Your Veracode sandbox name
+          veracode-api-id: ${{ secrets.VERACODE_API_ID }}
+          veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          include-sca: 'true'  # Include SCA findings
           ADO_PAT: ${{ secrets.ADO_PAT }}
           ADO_ORG: 'your-organization'
           ADO_PROJECT: 'your-project'
