@@ -212,6 +212,7 @@ async function findSandbox(apiKeyId, apiKeySecret, applicationGuid, sandboxName)
  * Get policy findings for an application
  */
 async function getPolicyFindings(apiKeyId, apiKeySecret, applicationGuid, page = 0, size = 20) {
+    console.log(`Getting policy findings for application: ${applicationGuid}`);
     const url = `https://api.veracode.com/appsec/v2/applications/${applicationGuid}/findings`;
     const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url, {
         scan_type: 'STATIC',
@@ -228,6 +229,7 @@ async function getPolicyFindings(apiKeyId, apiKeySecret, applicationGuid, page =
  * Get sandbox findings
  */
 async function getSandboxFindings(apiKeyId, apiKeySecret, applicationGuid, sandboxGuid, page = 0, size = 20) {
+    console.log(`Getting sandbox findings for application: ${applicationGuid} and sandbox: ${sandboxGuid}`);
     const url = `https://api.veracode.com/appsec/v2/applications/${applicationGuid}/findings`;
     const response = await veracodeApiRequest(apiKeyId, apiKeySecret, 'GET', url, {
         scan_type: 'STATIC',
