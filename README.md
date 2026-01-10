@@ -40,9 +40,16 @@ For a Pipeline Scan, this is typically done with the filtered results of the Pip
 Note that when Issues are added, a tag is inserted into the Issue title.  The tag is of the form `[VID:<cwe>:<file>:<line>]`.  There is some very simple matching of same file, same CWE, +/- 10 lines that will get resolved as the same issue.
 
 ## Importing Policy/Sandbox Scan flaws
-For a Policy or Sandbox scan, this is done with the Findings REST API call, see [Findings REST API](https://help.veracode.com/r/c_findings_v2_intro).
 
-**Important**: To enable the annotation-based workflow, ensure your API call includes the `include_annot=TRUE` parameter to fetch annotations along with the findings data.
+For a Policy or Sandbox scan, you can either:
+
+1. **Use API-based fetching (Recommended)**: Provide `profile-name` (and optionally `sandbox-name`) along with `veracode-api-id` and `veracode-api-key`. The action will automatically fetch findings directly from the Veracode API with annotations included (`include_annot=TRUE`), but only policy-relevant findings (`violates_policy=True`) will be loaded.
+
+2. **Use file-based approach**: Download findings manually using the Findings REST API call (see [Findings REST API](https://help.veracode.com/r/c_findings_v2_intro)) and provide the file path via `scan-results-json`.
+
+**Important**: To enable the annotation-based workflow, ensure your API call includes the `include_annot=TRUE` parameter to fetch annotations along with the findings data. When using API-based fetching, this is automatically included.
+
+**Note**: When sandbox findings are loaded (using `sandbox-name`), issues and work items will be automatically tagged with `sandbox-{SANDBOX_NAME}`.
 
 Note that when Issues are added, a tag is inserted into the Issue title.  The tag is of the form `[VID:<flaw_number>]`.  This tag is used to prevent duplicate issues from getting created.
 
@@ -357,7 +364,48 @@ The PAT should be scoped to the specific project where work items will be create
           autoCloseFindings: 'true'  # Optional, closes issues no longer present in scan
 ```
 
-#### Policy/Sandbox scan
+#### Policy/Sandbox scan (using API-based fetching - Recommended)
+
+```yaml
+  . . .
+# This step will fetch findings directly from Veracode API and import them as issues
+  import-policy-flaws:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: import flaws as issues
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        with:
+          dts_type: 'GITHUB'  # Optional, this is the default
+          profile-name: 'NodeGoat'  # Your Veracode application profile name
+          veracode-api-id: ${{ secrets.VERACODE_API_ID }}
+          veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          autoCloseFindings: 'true'  # Optional, closes issues no longer present in scan
+```
+
+#### Policy/Sandbox scan with Sandbox (using API-based fetching)
+
+```yaml
+  . . .
+# This step will fetch sandbox findings directly from Veracode API and import them as issues
+  import-sandbox-flaws:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: import sandbox flaws as issues
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        with:
+          dts_type: 'GITHUB'  # Optional, this is the default
+          profile-name: 'NodeGoat'  # Your Veracode application profile name
+          sandbox-name: 'Feature123'  # Your Veracode sandbox name
+          veracode-api-id: ${{ secrets.VERACODE_API_ID }}
+          veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          autoCloseFindings: 'true'  # Optional, closes issues no longer present in scan
+```
+
+#### Policy/Sandbox scan (using file-based approach - Legacy)
 
 ```yaml
   . . .
@@ -462,7 +510,52 @@ The PAT should be scoped to the specific project where work items will be create
           autoCloseFindings: 'true'  # Optional, closes work items no longer present in scan
 ```
 
-#### Policy/Sandbox scan with ADO
+#### Policy/Sandbox scan with ADO (using API-based fetching - Recommended)
+
+```yaml
+  . . .
+# This step will fetch findings directly from Veracode API and import them as ADO work items
+  import-policy-flaws-ado:
+    runs-on: ubuntu-latest
+    steps:
+      - name: import flaws as ADO work items
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        with:
+          dts_type: 'ADO'
+          profile-name: 'NodeGoat'  # Your Veracode application profile name
+          veracode-api-id: ${{ secrets.VERACODE_API_ID }}
+          veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+          ADO_ORG: 'your-organization'
+          ADO_PROJECT: 'your-project'
+          ADO_WORK_ITEM_TYPE: 'Bug'
+          autoCloseFindings: 'true'  # Optional, closes work items no longer present in scan
+```
+
+#### Policy/Sandbox scan with ADO and Sandbox (using API-based fetching)
+
+```yaml
+  . . .
+# This step will fetch sandbox findings directly from Veracode API and import them as ADO work items
+  import-sandbox-flaws-ado:
+    runs-on: ubuntu-latest
+    steps:
+      - name: import sandbox flaws as ADO work items
+        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        with:
+          dts_type: 'ADO'
+          profile-name: 'NodeGoat'  # Your Veracode application profile name
+          sandbox-name: 'Feature123'  # Your Veracode sandbox name
+          veracode-api-id: ${{ secrets.VERACODE_API_ID }}
+          veracode-api-key: ${{ secrets.VERACODE_API_KEY }}
+          ADO_PAT: ${{ secrets.ADO_PAT }}
+          ADO_ORG: 'your-organization'
+          ADO_PROJECT: 'your-project'
+          ADO_WORK_ITEM_TYPE: 'Bug'
+          autoCloseFindings: 'true'  # Optional, closes work items no longer present in scan
+```
+
+#### Policy/Sandbox scan with ADO (using file-based approach - Legacy)
 
 ```yaml
   . . .
