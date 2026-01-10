@@ -78,7 +78,7 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
     // Build query string for signature (without encoding, as it goes in the data string)
     const queryStringForSignature = Object.keys(queryParams)
         .filter(key => queryParams[key] !== undefined && queryParams[key] !== null)
-        .sort() // Sort alphabetically for signature
+//        .sort() // Sort alphabetically for signature
         .map(key => `${key}=${queryParams[key]}`)
         .join('&');
     
