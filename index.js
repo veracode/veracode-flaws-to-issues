@@ -4,14 +4,114 @@
 
 const core = require('@actions/core');
 const github = require('@actions/github');
+const fs = require('fs');
+const path = require('path');
 
 const importFlaws = require('./importer').importFlaws;
 const importFlawsToADO = require('./ado-importer').importFlawsToADO;
+const { findApplicationProfile, findSandbox, getAllFindings } = require('./veracode-api');
 
+async function fetchFindingsFromAPI() {
+    const profileName = core.getInput('profile-name');
+    const sandboxName = core.getInput('sandbox-name');
+    const apiKeyId = core.getInput('veracode-api-id');
+    const apiKeySecret = core.getInput('veracode-api-key');
+    
+    // Validate inputs
+    if (!profileName && !sandboxName) {
+        return null; // No API fetching needed
+    }
+    
+    if (!apiKeyId || !apiKeySecret) {
+        throw new Error('veracode-api-id and veracode-api-key are required when profile-name or sandbox-name is provided');
+    }
+    
+    // Validate: cannot use both, and sandbox requires profile
+    if (profileName && sandboxName) {
+        // Actually, when sandbox is specified, we need the profile to find which application it belongs to
+        // So both can be provided together - profile-name identifies the app, sandbox-name identifies the sandbox
+        // This is allowed and is the intended usage for sandbox scans
+    } else if (sandboxName && !profileName) {
+        throw new Error('profile-name is required when sandbox-name is specified. The profile name identifies which application the sandbox belongs to.');
+    } else if (!profileName && !sandboxName) {
+        throw new Error('Either profile-name (for policy scans) or both profile-name and sandbox-name (for sandbox scans) must be provided');
+    }
+    
+    console.log('=== Fetching Veracode Findings via API ===');
+    console.log(`Input profile name: ${profileName || 'N/A'}`);
+    console.log(`Input sandbox name: ${sandboxName || 'N/A'}`);
+    
+    // Step 1: Find application profile (required for both policy and sandbox scans)
+    console.log(`\nFinding application profile: ${profileName}`);
+    const profileInfo = await findApplicationProfile(apiKeyId, apiKeySecret, profileName);
+    console.log(`✓ Found profile: ${profileInfo.name} (GUID: ${profileInfo.guid})`);
+    
+    // Step 2: Find sandbox if specified
+    let sandboxInfo = null;
+    if (sandboxName) {
+        console.log(`\nFinding sandbox: ${sandboxName}`);
+        sandboxInfo = await findSandbox(apiKeyId, apiKeySecret, profileInfo.guid, sandboxName);
+        console.log(`✓ Found sandbox: ${sandboxInfo.name} (GUID: ${sandboxInfo.guid})`);
+    }
+    
+    // Step 3: Fetch findings
+    console.log(`\nFetching findings...`);
+    const findings = await getAllFindings(apiKeyId, apiKeySecret, profileInfo.guid, sandboxInfo?.guid);
+    const findingsCount = findings._embedded?.findings?.length || 0;
+    console.log(`✓ Fetched ${findingsCount} findings`);
+    
+    // Display summary
+    console.log('\n=== Summary ===');
+    console.log(`Input profile name: ${profileName}`);
+    if (sandboxName) {
+        console.log(`Input sandbox name: ${sandboxName}`);
+    }
+    console.log(`Found profile name: ${profileInfo.name}`);
+    console.log(`Found profile GUID: ${profileInfo.guid}`);
+    if (sandboxInfo) {
+        console.log(`Found sandbox name: ${sandboxInfo.name}`);
+        console.log(`Found sandbox GUID: ${sandboxInfo.guid}`);
+    }
+    console.log(`Number of findings: ${findingsCount}`);
+    console.log('================\n');
+    
+    // Write findings to a temporary file
+    const tempFile = path.join(process.env.RUNNER_TEMP || '/tmp', `veracode-findings-${Date.now()}.json`);
+    fs.writeFileSync(tempFile, JSON.stringify(findings, null, 2));
+    console.log(`Findings written to: ${tempFile}`);
+    
+    return tempFile;
+}
+
+(async () => {
 try {
     // get input params
     const dts_type = core.getInput('dts_type') || 'GITHUB';
-    const resultsFile = core.getInput('scan-results-json', {required: true} );
+    
+    // Check if we need to fetch from API or use file
+    let resultsFile;
+    const profileName = core.getInput('profile-name');
+    const sandboxName = core.getInput('sandbox-name');
+    
+    // Prioritize API-based fetching if profile-name or sandbox-name is provided
+    // (even if scan-results-json has a default value)
+    const useApi = profileName && profileName.trim() !== '' || sandboxName && sandboxName.trim() !== '';
+    
+    if (useApi) {
+        // Fetch from API - this takes precedence over file input
+        console.log('Using API-based fetching (profile-name/sandbox-name provided)');
+        resultsFile = await fetchFindingsFromAPI();
+        if (!resultsFile) {
+            throw new Error('Failed to fetch findings from API');
+        }
+    } else {
+        // Use file input (may use default value from action.yml)
+        console.log('Using file-based input (scan-results-json)');
+        resultsFile = core.getInput('scan-results-json');
+        if (!resultsFile || resultsFile.trim() === '') {
+            throw new Error('Either profile-name/sandbox-name (for API fetching) or scan-results-json (for file input) must be provided');
+        }
+    }
     const waitTime = core.getInput('wait-time');                // default set in Action.yml
     const source_base_path_1 = core.getInput('source_base_path_1'); 
     const source_base_path_2 = core.getInput('source_base_path_2'); 
@@ -148,3 +248,4 @@ try {
 } catch (error) {
     core.setFailed(error.stack);
 }
+})();

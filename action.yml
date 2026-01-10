@@ -6,9 +6,21 @@ inputs:
     required: false
     default: 'GITHUB'
   scan-results-json:
-    description: 'Scan results file'
-    required: true
+    description: 'Scan results file (required if profile-name/sandbox-name not provided, ignored if profile-name/sandbox-name is provided)'
+    required: false
     default: 'filtered_results.json'
+  profile-name:
+    description: 'Veracode application profile name (alternative to scan-results-json)'
+    required: false
+  sandbox-name:
+    description: 'Veracode sandbox name (alternative to scan-results-json, requires profile-name)'
+    required: false
+  veracode-api-id:
+    description: 'Veracode API ID (required if profile-name or sandbox-name is provided)'
+    required: false
+  veracode-api-key:
+    description: 'Veracode API Key (required if profile-name or sandbox-name is provided)'
+    required: false
   github-token:
     description: 'GitHub token to access the repo'
     default: ${{ github.token }}
