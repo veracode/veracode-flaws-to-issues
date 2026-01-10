@@ -110,6 +110,8 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
                 'Host': urlObj.host  // Use full host:port for the Host header
             }
         };
+
+        console.log(`Options: ${JSON.stringify(options)}`);
         
         // Configure proxy agent if proxy is detected and proxy agent packages are available
         if (proxyConfig) {
