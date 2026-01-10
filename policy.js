@@ -253,13 +253,47 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
         
         // Reopen the issue if it's closed
         if (issueState === 'closed') {
+            const patchData = { state: 'open' };
+            
+            // Add sandbox label if sandbox name is provided
+            if (options.sandboxName) {
+                // Get current labels first (we'll need to fetch the issue to get current labels)
+                // For now, we'll add the sandbox label - GitHub will merge it with existing labels
+                const sandboxLabel = `sandbox-${options.sandboxName}`;
+                patchData.labels = [sandboxLabel]; // This will replace all labels, so we need to get current ones first
+            }
+            
             await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
                 headers: { authorization: 'token ' + options.githubToken },
                 owner: options.githubOwner,
                 repo: options.githubRepo,
                 issue_number: issue_number,
-                state: 'open'
+                ...patchData
             });
+        } else if (options.sandboxName) {
+            // Issue is already open, but we need to add the sandbox label
+            // Get current issue to retrieve existing labels
+            const currentIssue = await request('GET /repos/{owner}/{repo}/issues/{issue_number}', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issue_number
+            });
+            
+            const currentLabels = currentIssue.data.labels.map(l => l.name);
+            const sandboxLabel = `sandbox-${options.sandboxName}`;
+            
+            // Only add if not already present
+            if (!currentLabels.includes(sandboxLabel)) {
+                currentLabels.push(sandboxLabel);
+                await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issue_number,
+                    labels: currentLabels
+                });
+            }
         }
         
         // Add comments for all annotations (if not already exists)

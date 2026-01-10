@@ -158,7 +158,8 @@ async function importFlawsToADO(params) {
             adoOpenState,
             adoCloseState,
             adoReopenState,
-            scanType: 'pipeline'
+            scanType: 'pipeline',
+            sandboxName: params.sandboxName
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
@@ -179,7 +180,8 @@ async function importFlawsToADO(params) {
             adoOpenState,
             adoCloseState,
             adoReopenState,
-            scanType: 'policy'
+            scanType: 'policy',
+            sandboxName: params.sandboxName
         });
         createdCount = result.createdCount;
         reopenedCount = result.reopenedCount;
@@ -657,7 +659,7 @@ async function addComment(adoClient, url, workItemId, payload, debug){
 }
 
 async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug, adoReopenState } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug, adoReopenState, sandboxName } = params;
     
     const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
     
@@ -670,6 +672,33 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
         existingReopenComment = existingSet.has(normalizeTextForCompare(expectedComment));
     } catch (error) {
         console.error(`Failed to check existing history for work item ${workItemId}:`, error.message);
+    }
+    
+    // Get current tags to preserve them and add sandbox tag if needed
+    let currentTags = '';
+    let sandboxTagToAdd = '';
+    if (sandboxName) {
+        sandboxTagToAdd = `sandbox-${sandboxName}`;
+        try {
+            // Fetch current work item to get existing tags
+            const workItemUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?$expand=all&api-version=7.0`;
+            const workItemResponse = await adoClient.get(workItemUrl);
+            currentTags = workItemResponse.data.fields['System.Tags'] || '';
+            
+            // Check if sandbox tag already exists
+            if (currentTags && currentTags.includes(sandboxTagToAdd)) {
+                sandboxTagToAdd = ''; // Already has the tag, no need to add
+            } else if (currentTags) {
+                // Append sandbox tag to existing tags
+                currentTags += `;${sandboxTagToAdd}`;
+            } else {
+                // No existing tags, just use sandbox tag
+                currentTags = sandboxTagToAdd;
+            }
+        } catch (error) {
+            console.warn(`Failed to fetch current tags for work item ${workItemId}, will add sandbox tag anyway:`, error.message);
+            currentTags = sandboxTagToAdd;
+        }
     }
     
     // Use configurable reopen state, with fallback to common states
@@ -694,6 +723,15 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
                 value: expectedComment
             }
         ];
+        
+        // Add sandbox tag if needed
+        if (sandboxTagToAdd && currentTags) {
+            payload.push({
+                op: 'replace',
+                path: '/fields/System.Tags',
+                value: currentTags
+            });
+        }
 
         if (debug === 'true') {
             console.log(`Attempting to reopen work item ${workItemId} using state "${state}" with payload:`, JSON.stringify(payload, null, 2));
@@ -730,7 +768,7 @@ async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params)
 }
 
 async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug, scanType, adoOpenState } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug, scanType, adoOpenState, sandboxName } = params;
 
     // Extract fields for title and tags based on scan type
     const flawId = flaw.issue_id || 'Unknown';
@@ -755,7 +793,12 @@ async function createWorkItem(adoClient, adoOrg, project, workItemType, flaw, pa
 
     // Now create the work item
     const url = `/${adoOrg}/${project}/_apis/wit/workitems/$${workItemType}?api-version=7.0`;
-    const tags = cweTag ? `Veracode;Security;${cweTag}` : 'Veracode;Security';
+    let tags = cweTag ? `Veracode;Security;${cweTag}` : 'Veracode;Security';
+    
+    // Add sandbox tag if sandbox name is provided
+    if (sandboxName) {
+        tags += `;sandbox-${sandboxName}`;
+    }
     
     // Create title without duplication
     let title;
@@ -1373,7 +1416,7 @@ function processAnnotationsADO(annotations) {
 
 // ADO-specific pipeline flaws processing
 async function processPipelineFlawsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState, scanType } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState, scanType, sandboxName } = params;
     
     // Local references that can be updated
     let currentExistingWorkItems = existingWorkItems;
@@ -1418,7 +1461,8 @@ async function processPipelineFlawsADO(adoPatchClient, adoQueryClient, adoClient
                         source_base_path_3,
                         commit_hash,
                         debug,
-                        adoReopenState
+                        adoReopenState,
+                        sandboxName
                     });
                     reopenedCount++;
                 } else {
@@ -1435,7 +1479,8 @@ async function processPipelineFlawsADO(adoPatchClient, adoQueryClient, adoClient
                     commit_hash,
                     debug,
                     scanType: 'pipeline',
-                    adoOpenState
+                    adoOpenState,
+                    sandboxName
                 });
 
                 console.log(`Successfully created work item ${workItem.id} for flaw ${flawId}`);
@@ -1465,7 +1510,7 @@ async function processPipelineFlawsADO(adoPatchClient, adoQueryClient, adoClient
 
 // ADO-specific policy flaws processing
 async function processPolicyFlawsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, flawData, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState, scanType } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState, scanType, sandboxName } = params;
     
     // Local references that can be updated
     let currentExistingWorkItems = existingWorkItems;
@@ -1519,7 +1564,8 @@ async function processPolicyFlawsADO(adoPatchClient, adoQueryClient, adoClient, 
                         source_base_path_3,
                         commit_hash,
                         debug,
-                        adoReopenState
+                        adoReopenState,
+                        sandboxName
                     });
                     reopenedCount++;
                 } else {
@@ -1537,7 +1583,8 @@ async function processPolicyFlawsADO(adoPatchClient, adoQueryClient, adoClient, 
                     commit_hash,
                     debug,
                     scanType: 'policy',
-                    adoOpenState
+                    adoOpenState,
+                    sandboxName
                 });
 
                 console.log(`Successfully created work item ${workItem.id} for flaw ${flawId}`);

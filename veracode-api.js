@@ -86,7 +86,9 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
     const urlQueryParams = queryStringForSignature ? `?${queryStringForSignature}` : '';
     
     // Generate authorization header using the same method as uploadandscan-action
-    console.log(`Generating authorization header for: ${host}, ${path}, ${urlQueryParams}, ${method}`);
+    if ( debug == "true" ){
+        console.log(`Generating authorization header for: ${host}, ${path}, ${urlQueryParams}, ${method}`);
+    }
     const authorization = calculateAuthorizationHeader(apiKeyId, apiKeySecret, host, path, urlQueryParams, method);
     
     const fullPath = queryString ? `${path}?${queryString}` : path;
@@ -111,7 +113,9 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
             }
         };
 
-        console.log(`Options: ${JSON.stringify(options)}`);
+        if ( debug == "true" ){
+            console.log(`Options: ${JSON.stringify(options)}`);
+        }
         
         // Configure proxy agent if proxy is detected and proxy agent packages are available
         if (proxyConfig) {
@@ -136,11 +140,15 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     try {
                         const jsonData = JSON.parse(data);
-                        console.log(`Response: ${JSON.stringify(jsonData)}`);
+                        if ( debug == "true" ){
+                            console.log(`Response: ${JSON.stringify(jsonData)}`);
+                        }
                         resolve(jsonData);
                     } catch (parseError) {
                         const jsonData = JSON.parse(data);
-                        console.log(`Error: ${JSON.stringify(jsonData)}`);
+                        if ( debug == "true" ){
+                            console.log(`Error: ${JSON.stringify(jsonData)}`);
+                        }
                         reject(new Error(`Failed to parse JSON response: ${parseError.message}`));
                     }
                 } else {

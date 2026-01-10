@@ -20,6 +20,15 @@ async function addVeracodeIssue(options, issue) {
     var authToken = 'token ' + githubToken;
 
 
+    // Build labels array
+    const labels = [label.severityToLabel(issue.severity), issue.label];
+    
+    // Add sandbox label if sandbox name is provided
+    if (options.sandboxName) {
+        const sandboxLabel = `sandbox-${options.sandboxName}`;
+        labels.push(sandboxLabel);
+    }
+    
     return await request('POST /repos/{owner}/{repo}/issues', {
         headers: {
             authorization: authToken
@@ -28,7 +37,7 @@ async function addVeracodeIssue(options, issue) {
         repo: githubRepo,
         data: {
             "title": issue.title,
-            "labels": [label.severityToLabel(issue.severity), issue.label],
+            "labels": labels,
             "body": issue.body+`/nDon't know how to fix this? Don't know why this was reported?<br><a href="http://www.veracode.com">Get Assistance from Veracode</a>`
         }
     })

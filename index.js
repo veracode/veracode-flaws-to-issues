@@ -80,7 +80,11 @@ async function fetchFindingsFromAPI() {
     fs.writeFileSync(tempFile, JSON.stringify(findings, null, 2));
     console.log(`Findings written to: ${tempFile}`);
     
-    return tempFile;
+    // Return both file path and sandbox name (if applicable)
+    return {
+        file: tempFile,
+        sandboxName: sandboxInfo?.name || null
+    };
 }
 
 (async () => {
@@ -97,13 +101,16 @@ try {
     // (even if scan-results-json has a default value)
     const useApi = profileName && profileName.trim() !== '' || sandboxName && sandboxName.trim() !== '';
     
+    let sandboxNameForTag = null;
     if (useApi) {
         // Fetch from API - this takes precedence over file input
         console.log('Using API-based fetching (profile-name/sandbox-name provided)');
-        resultsFile = await fetchFindingsFromAPI();
-        if (!resultsFile) {
+        const apiResult = await fetchFindingsFromAPI();
+        if (!apiResult || !apiResult.file) {
             throw new Error('Failed to fetch findings from API');
         }
+        resultsFile = apiResult.file;
+        sandboxNameForTag = apiResult.sandboxName; // Will be null if not a sandbox scan
     } else {
         // Use file input (may use default value from action.yml)
         console.log('Using file-based input (scan-results-json)');
@@ -165,7 +172,8 @@ try {
             commit_hash: commit_hash,
             fail_build: fail_build,
             autoCloseFindings: autoCloseFindings,
-            debug: debug
+            debug: debug,
+            sandboxName: sandboxNameForTag
         })
         .catch(error => {console.error(`Failure at ${error.stack}`)});
     } else {
@@ -240,7 +248,8 @@ try {
              pr_commentID: pr_commentID,
              fail_build: fail_build,
              autoCloseFindings: autoCloseFindings,
-             debug: debug
+             debug: debug,
+             sandboxName: sandboxNameForTag
             }
         )
         .catch(error => {console.error(`Failure at ${error.stack}`)});
