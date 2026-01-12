@@ -199,29 +199,47 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
     for (let index = 0; index < findings.length; index++) {
         const finding = findings[index];
         
-        // Only process findings that are OPEN and violate policy
-        if (finding.finding_status?.status !== 'OPEN' || !finding.violates_policy) {
-            if (finding.finding_status?.status !== 'OPEN') {
-                console.log(`Skipping finding - status is ${finding.finding_status?.status}, not OPEN`);
-            } else {
-                console.log(`Skipping finding - violates_policy is ${finding.violates_policy}, not true`);
-            }
-            continue;
-        }
-
         const vid = createSCAFindingID(finding);
-        const issueNumber = getIssueNumber(vid);
-        const issueState = getIssueState(vid);
+        const findingStatus = finding.finding_status?.status || 'UNKNOWN';
+        const violatesPolicy = finding.violates_policy === true;
 
-        console.debug(`Processing SCA finding ${vid}`);
+        console.debug(`Processing SCA finding ${vid} (Status: ${findingStatus}, Violates Policy: ${violatesPolicy})`);
 
         // Check if issue already exists
         if (findingExists(vid)) {
-            console.log(`Issue already exists for ${vid} (Issue #${issueNumber}, State: ${issueState})`);
+            const issueNumber = getIssueNumber(vid);
+            const issueState = getIssueState(vid);
+            console.log(`Issue already exists for ${vid} (Issue #${issueNumber}, State: ${issueState}, Finding Status: ${findingStatus})`);
             
-            // If issue is closed, reopen it
-            if (issueState === 'closed') {
-                console.log(`Reopening closed issue #${issueNumber} for ${vid}`);
+            // Synchronize issue state with finding status
+            if (findingStatus === 'CLOSED' && issueState === 'open') {
+                // Finding is closed on Veracode platform, but issue is open on GitHub - close it
+                console.log(`Closing open issue #${issueNumber} for ${vid} - finding is CLOSED on Veracode platform`);
+                await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issueNumber,
+                    state: 'closed',
+                    state_reason: 'completed'
+                });
+                
+                // Add comment explaining the closure
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issueNumber,
+                    body: 'Issue closed through Veracode Platform mitigation'
+                });
+                
+                // Rate limiting
+                if (waitTime > 0) {
+                    await util.sleep(waitTime * 1000);
+                }
+            } else if (findingStatus === 'OPEN' && violatesPolicy && issueState === 'closed') {
+                // Finding is open on Veracode platform, but issue is closed on GitHub - reopen it
+                console.log(`Reopening closed issue #${issueNumber} for ${vid} - finding is OPEN on Veracode platform`);
                 await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
                     headers: { authorization: 'token ' + options.githubToken },
                     owner: options.githubOwner,
@@ -229,6 +247,21 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
                     issue_number: issueNumber,
                     state: 'open'
                 });
+                
+                // Add comment explaining the reopening
+                const commitHash = options.commit_hash || process.env.GITHUB_SHA || 'N/A';
+                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issueNumber,
+                    body: `The finding is still open on the Veracode platform for scan ${commitHash}`
+                });
+                
+                // Rate limiting
+                if (waitTime > 0) {
+                    await util.sleep(waitTime * 1000);
+                }
 
                 // Add sandbox label if needed
                 if (options.sandboxName) {
@@ -253,6 +286,40 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
                         });
                     }
                 }
+            } else if (findingStatus === 'OPEN' && violatesPolicy && issueState === 'open') {
+                // Finding is open and issue is open - ensure sandbox label is present if needed
+                if (options.sandboxName) {
+                    const currentIssue = await request('GET /repos/{owner}/{repo}/issues/{issue_number}', {
+                        headers: { authorization: 'token ' + options.githubToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        issue_number: issueNumber
+                    });
+                    
+                    const currentLabels = currentIssue.data.labels.map(l => l.name);
+                    const sandboxLabel = `sandbox-${options.sandboxName}`;
+                    
+                    if (!currentLabels.includes(sandboxLabel)) {
+                        currentLabels.push(sandboxLabel);
+                        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                            headers: { authorization: 'token ' + options.githubToken },
+                            owner: options.githubOwner,
+                            repo: options.githubRepo,
+                            issue_number: issueNumber,
+                            labels: currentLabels
+                        });
+                    }
+                }
+            }
+            continue;
+        }
+
+        // Only create new issues for findings that are OPEN and violate policy
+        if (findingStatus !== 'OPEN' || !violatesPolicy) {
+            if (findingStatus !== 'OPEN') {
+                console.log(`Skipping finding - status is ${findingStatus}, not OPEN`);
+            } else {
+                console.log(`Skipping finding - violates_policy is ${violatesPolicy}, not true`);
             }
             continue;
         }
@@ -284,7 +351,8 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
             });
 
         // Add CVE label to the issue (in addition to Veracode-SCA and severity labels)
-        const cveLabel = `CVE-${cveName}`;
+        // Check if cveName already starts with "CVE-" to avoid duplication
+        const cveLabel = cveName.startsWith('CVE-') ? cveName : `CVE-${cveName}`;
         try {
             // Get current labels and add CVE label
             const currentIssue = await request('GET /repos/{owner}/{repo}/issues/{issue_number}', {
@@ -326,12 +394,11 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
     if (autoCloseFindings) {
         console.log(`\nChecking for SCA GitHub issues to close (findings not found in current scan)...`);
         
+        // Track all findings that exist in the scan (regardless of status)
         const processedFindingIds = new Set();
         findings.forEach(finding => {
-            if (finding.finding_status?.status === 'OPEN' && finding.violates_policy) {
-                const vid = createSCAFindingID(finding);
-                processedFindingIds.add(vid);
-            }
+            const vid = createSCAFindingID(finding);
+            processedFindingIds.add(vid);
         });
 
         const authToken = 'token ' + options.githubToken;

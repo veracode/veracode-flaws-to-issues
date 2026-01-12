@@ -706,12 +706,12 @@ async function addComment(adoClient, url, workItemId, payload, debug){
 }
 
 async function reopenWorkItem(adoClient, adoOrg, adoProject, workItemId, params) {
-    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug, adoReopenState, sandboxName } = params;
+    const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, debug, adoReopenState, sandboxName, reopenComment } = params;
     
     const url = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
     
-    // Check if reopening comment already exists to avoid duplicates using Updates API
-    const expectedComment = `Reopened by Veracode scan - Commit: ${commit_hash || 'Unknown'}`;
+    // Use provided reopenComment or default message
+    const expectedComment = reopenComment || `Reopened by Veracode scan - Commit: ${commit_hash || 'Unknown'}`;
     let existingReopenComment = false;
     try {
         const historyEntries = await fetchWorkItemHistoryEntries(adoClient, adoOrg, adoProject, workItemId, debug);
@@ -1878,23 +1878,15 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
     
     for (const finding of findings) {
         try {
-            // Only process findings that are OPEN and violate policy
-            if (finding.finding_status?.status !== 'OPEN' || !finding.violates_policy) {
-                if (finding.finding_status?.status !== 'OPEN') {
-                    console.log(`Skipping SCA finding - status is ${finding.finding_status?.status}, not OPEN`);
-                } else {
-                    console.log(`Skipping SCA finding - violates_policy is ${finding.violates_policy}, not true`);
-                }
-                continue;
-            }
-
             const veracodeFlawId = createSCAFindingID(finding);
+            const findingStatus = finding.finding_status?.status || 'UNKNOWN';
+            const violatesPolicy = finding.violates_policy === true;
             
-            // Track this finding as processed
+            // Track this finding as processed (regardless of status)
             processedFlawIds.add(veracodeFlawId);
             
             if (debug === 'true') {
-                console.log(`Processing SCA finding with Veracode ID: ${veracodeFlawId}`);
+                console.log(`Processing SCA finding with Veracode ID: ${veracodeFlawId} (Status: ${findingStatus}, Violates Policy: ${violatesPolicy})`);
             }
             
             // Check if work item already exists
@@ -1903,10 +1895,43 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
             if (existingWorkItem) {
                 const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
                 const workItemId = existingWorkItem.id;
-                console.log(`Work item already exists for SCA finding (ID: ${workItemId}, State: ${workItemState})`);
+                const isClosedState = workItemState === 'Closed' || workItemState === 'Resolved' || workItemState === 'Done';
+                const isOpenState = !isClosedState;
                 
-                if (workItemState === 'Closed' || workItemState === 'Resolved' || workItemState === 'Done') {
-                    console.log(`Reopening closed work item ${workItemId} for SCA finding`);
+                console.log(`Work item already exists for SCA finding (ID: ${workItemId}, State: ${workItemState}, Finding Status: ${findingStatus})`);
+                
+                // Synchronize work item state with finding status
+                if (findingStatus === 'CLOSED' && isOpenState) {
+                    // Finding is closed on Veracode platform, but work item is open - close it
+                    console.log(`Closing open work item ${workItemId} for SCA finding - finding is CLOSED on Veracode platform`);
+                    const closeUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+                    const closePayload = [
+                        {
+                            op: 'replace',
+                            path: '/fields/System.State',
+                            value: adoCloseState || 'Done'
+                        },
+                        {
+                            op: 'add',
+                            path: '/fields/System.History',
+                            value: 'Issue closed through Veracode Platform mitigation'
+                        }
+                    ];
+                    
+                    await adoPatchClient.patch(closeUrl, closePayload, {
+                        headers: {
+                            'Content-Type': 'application/json-patch+json'
+                        }
+                    });
+                    
+                    closedCount++;
+                    
+                    // Wait between API calls to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                } else if (findingStatus === 'OPEN' && violatesPolicy && isClosedState) {
+                    // Finding is open on Veracode platform, but work item is closed - reopen it
+                    console.log(`Reopening closed work item ${workItemId} for SCA finding - finding is OPEN on Veracode platform`);
+                    const reopenComment = `The finding is still open on the Veracode platform for scan ${commit_hash || 'N/A'}`;
                     await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
                         source_base_path_1,
                         source_base_path_2,
@@ -1914,14 +1939,55 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                         commit_hash,
                         debug,
                         adoReopenState,
-                        sandboxName
+                        sandboxName,
+                        reopenComment: reopenComment
                     });
                     reopenedCount++;
-                } else {
+                    
+                    // Wait between API calls to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                } else if (findingStatus === 'OPEN' && violatesPolicy && isOpenState) {
+                    // Finding is open and work item is open - ensure sandbox tag is present if needed
+                    if (sandboxName) {
+                        const currentWorkItem = await adoClient.get(`/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`);
+                        let existingTags = currentWorkItem.data.fields['System.Tags'] || '';
+                        let tagsArray = existingTags.split(';').map(tag => tag.trim()).filter(tag => tag !== '');
+                        const sandboxTag = `sandbox-${sandboxName}`;
+                        
+                        if (!tagsArray.some(tag => tag.startsWith('sandbox-'))) {
+                            tagsArray.push(sandboxTag);
+                            const updateUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+                            const updatePayload = [
+                                {
+                                    op: 'replace',
+                                    path: '/fields/System.Tags',
+                                    value: tagsArray.join(';')
+                                }
+                            ];
+                            
+                            await adoPatchClient.patch(updateUrl, updatePayload, {
+                                headers: {
+                                    'Content-Type': 'application/json-patch+json'
+                                }
+                            });
+                        }
+                    }
                     console.log(`Work item ${workItemId} is already open (State: ${workItemState}), skipping creation`);
+                    skippedCount++;
+                } else {
+                    console.log(`Work item ${workItemId} state (${workItemState}) matches finding status (${findingStatus}), no action needed`);
                     skippedCount++;
                 }
             } else {
+                // Only create new work items for findings that are OPEN and violate policy
+                if (findingStatus !== 'OPEN' || !violatesPolicy) {
+                    if (findingStatus !== 'OPEN') {
+                        console.log(`Skipping SCA finding - status is ${findingStatus}, not OPEN`);
+                    } else {
+                        console.log(`Skipping SCA finding - violates_policy is ${violatesPolicy}, not true`);
+                    }
+                    continue;
+                }
                 // Create new work item
                 const componentFilename = finding.finding_details?.component_filename || 'Unknown';
                 const cveName = finding.finding_details?.cve?.name || 'Unknown';
@@ -1933,7 +1999,9 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                 // Build tags
                 let tags = 'Veracode-SCA';
                 if (cveName !== 'Unknown') {
-                    tags += `;CVE-${cveName}`;
+                    // Check if cveName already starts with "CVE-" to avoid duplication
+                    const cveTag = cveName.startsWith('CVE-') ? cveName : `CVE-${cveName}`;
+                    tags += `;${cveTag}`;
                 }
                 tags += `;${cveSeverity}`;
                 
