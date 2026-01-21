@@ -89,7 +89,7 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
     if ( debug == "true" ){
         console.log(`Generating authorization header for: ${host}, ${path}, ${urlQueryParams}, ${method}`);
     }
-    const authorization = calculateAuthorizationHeader(apiKeyId, apiKeySecret, host, path, urlQueryParams, method);
+    const authorization = calculateAuthorizationHeader(apiKeyId, apiKeySecret, host, path, encodeURIComponent(urlQueryParams), method);
     
     const fullPath = queryString ? `${path}?${queryString}` : path;
     
