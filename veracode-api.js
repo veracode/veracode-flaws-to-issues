@@ -83,13 +83,13 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
         .join('&');
     
     // Format query string for signature: add ? prefix if params exist
-    const urlQueryParams = queryStringForSignature ? `?${queryStringForSignature}` : '';
+    const encodeURIComponent(urlQueryParams) = queryStringForSignature ? `?${queryStringForSignature}` : '';
     
     // Generate authorization header using the same method as uploadandscan-action
     if ( debug == "true" ){
         console.log(`Generating authorization header for: ${host}, ${path}, ${urlQueryParams}, ${method}`);
     }
-    const authorization = calculateAuthorizationHeader(apiKeyId, apiKeySecret, host, path, encodeURIComponent(urlQueryParams), method);
+    const authorization = calculateAuthorizationHeader(apiKeyId, apiKeySecret, host, path, urlQueryParams, method);
     
     const fullPath = queryString ? `${path}?${queryString}` : path;
     
