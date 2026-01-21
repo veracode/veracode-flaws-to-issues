@@ -8,6 +8,119 @@ const addVeracodeIssue = require('./issue').addVeracodeIssue;
 const core = require('@actions/core');
 const util = require('./util');
 
+/**
+ * Format annotation as a comment
+ */
+function formatAnnotationComment(annotation) {
+    // Use UTC time to avoid timezone conversion issues
+    const date = new Date(annotation.created).toISOString().replace('T', ' ').replace('Z', ' UTC');
+    // Map all non-APPROVED/REJECTED actions to PROPOSAL for better readability
+    const displayAction = (annotation.action !== 'APPROVED' && annotation.action !== 'REJECTED') ? 'PROPOSAL' : annotation.action;
+    let comment = `## Veracode Mitigation - ${displayAction}
+
+**Action:** ${annotation.action}
+**Comment:** ${annotation.comment}
+**Date:** ${date}
+**User:** ${annotation.user_name}`;
+    
+    // Add proposed mitigation message for actions that are neither APPROVED nor REJECTED
+    if (annotation.action !== 'APPROVED' && annotation.action !== 'REJECTED') {
+        comment += `
+
+> **Note:** This is a proposed mitigation, please talk to your security team for approval.`;
+    }
+    
+    return comment;
+}
+
+/**
+ * Check if an annotation comment already exists on an issue
+ */
+async function annotationCommentExists(options, issue_number, annotation) {
+    try {
+        const response = await request('GET /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+            headers: { authorization: 'token ' + options.githubToken },
+            owner: options.githubOwner,
+            repo: options.githubRepo,
+            issue_number: issue_number,
+            per_page: 100
+        });
+        
+        const expectedComment = formatAnnotationComment(annotation);
+        
+        // Check if any existing comment matches our expected comment
+        const exists = response.data.some(comment => {
+            // First try exact match
+            let matches = comment.body === expectedComment;
+            
+            if (!matches) {
+                // If exact match fails, try comparing key fields for annotation comments
+                const isAnnotationComment = comment.body.includes('**User:**') && 
+                                           comment.body.includes('**Action:**') &&
+                                           comment.body.includes('**Date:**');
+                
+                if (isAnnotationComment) {
+                    // Extract key fields and compare
+                    const userMatch = comment.body.includes(`**User:** ${annotation.user_name}`);
+                    const actionMatch = comment.body.includes(`**Action:** ${annotation.action}`);
+                    const dateMatch = comment.body.includes(new Date(annotation.created).toISOString().replace('T', ' ').replace('Z', ' UTC'));
+                    
+                    matches = userMatch && actionMatch && dateMatch;
+                }
+            }
+            
+            return matches;
+        });
+        
+        return exists;
+    } catch (error) {
+        console.error(`Error checking for existing annotation comment: ${error.message}`);
+        return false;
+    }
+}
+
+/**
+ * Process annotations to determine action
+ */
+function processAnnotations(annotations) {
+    if (!annotations || annotations.length === 0) {
+        return { action: 'none', annotations: [] };
+    }
+    
+    // Sort all annotations by created date (most recent first)
+    const sortedAnnotations = annotations.sort((a, b) => new Date(b.created) - new Date(a.created));
+    
+    // Find the most recent APPROVED or REJECTED annotation (these take precedence)
+    const mostRecentApprovedOrRejected = sortedAnnotations.find(ann => 
+        ann.action === 'APPROVED' || ann.action === 'REJECTED'
+    );
+    
+    // If we have an APPROVED or REJECTED annotation, use it to determine the action
+    if (mostRecentApprovedOrRejected) {
+        if (mostRecentApprovedOrRejected.action === 'APPROVED') {
+            return { 
+                action: 'close', 
+                annotations: sortedAnnotations,
+                mostRecent: mostRecentApprovedOrRejected
+            };
+        } else if (mostRecentApprovedOrRejected.action === 'REJECTED') {
+            return { 
+                action: 'reopen', 
+                annotations: sortedAnnotations,
+                mostRecent: mostRecentApprovedOrRejected
+            };
+        }
+    }
+    
+    // If no APPROVED or REJECTED annotations, use the most recent annotation for update
+    const mostRecent = sortedAnnotations[0];
+    return { 
+        action: 'update', 
+        annotations: sortedAnnotations,
+        mostRecent: mostRecent
+    };
+}
+
 // Sparse array, element = true if the finding exists, undefined otherwise
 var existingFindings = [];
 var existingFindingNumber = [];
@@ -211,6 +324,47 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
             const issueState = getIssueState(vid);
             console.log(`Issue already exists for ${vid} (Issue #${issueNumber}, State: ${issueState}, Finding Status: ${findingStatus})`);
             
+            // Handle annotations if present
+            if (finding.annotations && finding.annotations.length > 0) {
+                const annotationResult = processAnnotations(finding.annotations);
+                console.log(`Processing annotations for SCA finding ${vid}: ${annotationResult.action} (${finding.annotations.length} annotations)`);
+                
+                // Add comments for all annotations (if not already exists)
+                for (const annotation of annotationResult.annotations) {
+                    const commentExists = await annotationCommentExists(options, issueNumber, annotation);
+                    if (!commentExists) {
+                        console.log(`Adding comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                        await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                            headers: { authorization: 'token ' + options.githubToken },
+                            owner: options.githubOwner,
+                            repo: options.githubRepo,
+                            issue_number: issueNumber,
+                            body: formatAnnotationComment(annotation)
+                        });
+                        
+                        // Rate limiting
+                        if (waitTime > 0) {
+                            await util.sleep(waitTime * 1000);
+                        }
+                    } else {
+                        console.log(`Skipping duplicate comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                    }
+                }
+                
+                // If most recent annotation is APPROVED, close the issue
+                if (annotationResult.action === 'close' && issueState === 'open') {
+                    console.log(`Closing issue #${issueNumber} for ${vid} - most recent annotation is APPROVED`);
+                    await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                        headers: { authorization: 'token ' + options.githubToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        issue_number: issueNumber,
+                        state: 'closed',
+                        state_reason: 'completed'
+                    });
+                }
+            }
+            
             // Synchronize issue state with finding status
             if (findingStatus === 'CLOSED' && issueState === 'open') {
                 // Finding is closed on Veracode platform, but issue is open on GitHub - close it
@@ -224,14 +378,16 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
                     state_reason: 'completed'
                 });
                 
-                // Add comment explaining the closure
-                await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
-                    headers: { authorization: 'token ' + options.githubToken },
-                    owner: options.githubOwner,
-                    repo: options.githubRepo,
-                    issue_number: issueNumber,
-                    body: 'Issue closed through Veracode Platform mitigation'
-                });
+                // Add comment explaining the closure (only if no annotations were processed)
+                if (!finding.annotations || finding.annotations.length === 0) {
+                    await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                        headers: { authorization: 'token ' + options.githubToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        issue_number: issueNumber,
+                        body: 'Issue closed through Veracode Platform mitigation'
+                    });
+                }
                 
                 // Rate limiting
                 if (waitTime > 0) {
@@ -314,10 +470,15 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
             continue;
         }
 
-        // Only create new issues for findings that are OPEN and violate policy
-        if (findingStatus !== 'OPEN' || !violatesPolicy) {
+        // Create new issues for findings that are:
+        // 1. OPEN and violate policy, OR
+        // 2. CLOSED with annotations (to create issue, add comments, and close it)
+        const hasAnnotations = finding.annotations && finding.annotations.length > 0;
+        const shouldCreateIssue = (findingStatus === 'OPEN' && violatesPolicy) || (findingStatus === 'CLOSED' && hasAnnotations);
+        
+        if (!shouldCreateIssue) {
             if (findingStatus !== 'OPEN') {
-                console.log(`Skipping finding - status is ${findingStatus}, not OPEN`);
+                console.log(`Skipping finding - status is ${findingStatus}, not OPEN and no annotations`);
             } else {
                 console.log(`Skipping finding - violates_policy is ${violatesPolicy}, not true`);
             }
@@ -375,6 +536,66 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
             }
         } catch (labelError) {
             console.warn(`Failed to add CVE label ${cveLabel}: ${labelError.message}`);
+        }
+
+        // Process annotations if present
+        if (finding.annotations && finding.annotations.length > 0) {
+            const annotationResult = processAnnotations(finding.annotations);
+            console.log(`Processing annotations for new SCA issue ${issueResult}: ${annotationResult.action} (${finding.annotations.length} annotations)`);
+            
+            // Add comments for all annotations (if not already exists)
+            for (const annotation of annotationResult.annotations) {
+                const commentExists = await annotationCommentExists(options, issueResult, annotation);
+                if (!commentExists) {
+                    console.log(`Adding comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                    await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                        headers: { authorization: 'token ' + options.githubToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        issue_number: issueResult,
+                        body: formatAnnotationComment(annotation)
+                    });
+                    
+                    // Rate limiting
+                    if (waitTime > 0) {
+                        await util.sleep(waitTime * 1000);
+                    }
+                } else {
+                    console.log(`Skipping duplicate comment for annotation: ${annotation.action} by ${annotation.user_name}`);
+                }
+            }
+            
+            // If most recent annotation is APPROVED or finding is CLOSED, close the issue
+            if (annotationResult.action === 'close' || findingStatus === 'CLOSED') {
+                console.log(`Closing newly created issue ${issueResult} - most recent annotation is APPROVED or finding is CLOSED`);
+                await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issueResult,
+                    state: 'closed',
+                    state_reason: 'completed'
+                });
+            }
+        } else if (findingStatus === 'CLOSED') {
+            // If finding is CLOSED but has no annotations, close the issue with a generic comment
+            console.log(`Closing newly created issue ${issueResult} - finding is CLOSED`);
+            await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issueResult,
+                state: 'closed',
+                state_reason: 'completed'
+            });
+            
+            await request('POST /repos/{owner}/{repo}/issues/{issue_number}/comments', {
+                headers: { authorization: 'token ' + options.githubToken },
+                owner: options.githubOwner,
+                repo: options.githubRepo,
+                issue_number: issueResult,
+                body: 'Issue closed through Veracode Platform mitigation'
+            });
         }
 
         processedCount++;

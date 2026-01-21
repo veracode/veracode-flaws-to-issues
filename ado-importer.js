@@ -1900,6 +1900,35 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                 
                 console.log(`Work item already exists for SCA finding (ID: ${workItemId}, State: ${workItemState}, Finding Status: ${findingStatus})`);
                 
+                // Handle annotations if present
+                if (finding.annotations && finding.annotations.length > 0) {
+                    console.log(`Processing annotations for SCA finding ${veracodeFlawId}: ${finding.annotations.length} annotations`);
+                    await updateWorkItem(adoClient, adoOrg, adoProject, workItemId, finding.annotations, {
+                        workItemType: adoWorkItemType,
+                        debug
+                    });
+                    
+                    // If most recent annotation is APPROVED, close the work item
+                    const annotationResult = processAnnotationsADO(finding.annotations);
+                    if (annotationResult.action === 'close' && isOpenState) {
+                        console.log(`Closing work item ${workItemId} for SCA finding - most recent annotation is APPROVED`);
+                        const closeUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+                        const closePayload = [
+                            {
+                                op: 'replace',
+                                path: '/fields/System.State',
+                                value: adoCloseState || 'Done'
+                            }
+                        ];
+                        
+                        await adoPatchClient.patch(closeUrl, closePayload, {
+                            headers: {
+                                'Content-Type': 'application/json-patch+json'
+                            }
+                        });
+                    }
+                }
+                
                 // Synchronize work item state with finding status
                 if (findingStatus === 'CLOSED' && isOpenState) {
                     // Finding is closed on Veracode platform, but work item is open - close it
@@ -1910,13 +1939,17 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                             op: 'replace',
                             path: '/fields/System.State',
                             value: adoCloseState || 'Done'
-                        },
-                        {
+                        }
+                    ];
+                    
+                    // Only add generic comment if no annotations were processed
+                    if (!finding.annotations || finding.annotations.length === 0) {
+                        closePayload.push({
                             op: 'add',
                             path: '/fields/System.History',
                             value: 'Issue closed through Veracode Platform mitigation'
-                        }
-                    ];
+                        });
+                    }
                     
                     await adoPatchClient.patch(closeUrl, closePayload, {
                         headers: {
@@ -1979,10 +2012,15 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                     skippedCount++;
                 }
             } else {
-                // Only create new work items for findings that are OPEN and violate policy
-                if (findingStatus !== 'OPEN' || !violatesPolicy) {
+                // Create new work items for findings that are:
+                // 1. OPEN and violate policy, OR
+                // 2. CLOSED with annotations (to create work item, add comments, and close it)
+                const hasAnnotations = finding.annotations && finding.annotations.length > 0;
+                const shouldCreateWorkItem = (findingStatus === 'OPEN' && violatesPolicy) || (findingStatus === 'CLOSED' && hasAnnotations);
+                
+                if (!shouldCreateWorkItem) {
                     if (findingStatus !== 'OPEN') {
-                        console.log(`Skipping SCA finding - status is ${findingStatus}, not OPEN`);
+                        console.log(`Skipping SCA finding - status is ${findingStatus}, not OPEN and no annotations`);
                     } else {
                         console.log(`Skipping SCA finding - violates_policy is ${violatesPolicy}, not true`);
                     }
@@ -2084,7 +2122,60 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                         }
                     });
                     
-                    console.log(`Successfully created work item ${response.data.id} for SCA finding`);
+                    const workItemId = response.data.id;
+                    console.log(`Successfully created work item ${workItemId} for SCA finding`);
+                    
+                    // Process annotations if present
+                    if (finding.annotations && finding.annotations.length > 0) {
+                        console.log(`Processing annotations for new SCA work item ${workItemId}: ${finding.annotations.length} annotations`);
+                        await updateWorkItem(adoClient, adoOrg, adoProject, workItemId, finding.annotations, {
+                            workItemType: adoWorkItemType,
+                            debug
+                        });
+                        
+                        // If most recent annotation is APPROVED or finding is CLOSED, close the work item
+                        const annotationResult = processAnnotationsADO(finding.annotations);
+                        if (annotationResult.action === 'close' || findingStatus === 'CLOSED') {
+                            console.log(`Closing newly created work item ${workItemId} - most recent annotation is APPROVED or finding is CLOSED`);
+                            const closeUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+                            const closePayload = [
+                                {
+                                    op: 'replace',
+                                    path: '/fields/System.State',
+                                    value: adoCloseState || 'Done'
+                                }
+                            ];
+                            
+                            await adoPatchClient.patch(closeUrl, closePayload, {
+                                headers: {
+                                    'Content-Type': 'application/json-patch+json'
+                                }
+                            });
+                        }
+                    } else if (findingStatus === 'CLOSED') {
+                        // If finding is CLOSED but has no annotations, close the work item with a generic comment
+                        console.log(`Closing newly created work item ${workItemId} - finding is CLOSED`);
+                        const closeUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+                        const closePayload = [
+                            {
+                                op: 'replace',
+                                path: '/fields/System.State',
+                                value: adoCloseState || 'Done'
+                            },
+                            {
+                                op: 'add',
+                                path: '/fields/System.History',
+                                value: 'Issue closed through Veracode Platform mitigation'
+                            }
+                        ];
+                        
+                        await adoPatchClient.patch(closeUrl, closePayload, {
+                            headers: {
+                                'Content-Type': 'application/json-patch+json'
+                            }
+                        });
+                    }
+                    
                     createdCount++;
                 } catch (error) {
                     console.error(`Error creating SCA work item: ${error.message}`);
