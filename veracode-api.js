@@ -79,11 +79,11 @@ async function veracodeApiRequest(apiKeyId, apiKeySecret, method, url, queryPara
     const queryStringForSignature = Object.keys(queryParams)
         .filter(key => queryParams[key] !== undefined && queryParams[key] !== null)
 //        .sort() // Sort alphabetically for signature
-        .map(key => `${key}=${queryParams[key]}`)
+        .map(key => `${encodeURIComponent(key)}=${encodeURIComponent(queryParams[key])}`)
         .join('&');
     
     // Format query string for signature: add ? prefix if params exist
-    const encodeURIComponent(urlQueryParams) = queryStringForSignature ? `?${queryStringForSignature}` : '';
+    const urlQueryParams = queryStringForSignature ? `?${queryStringForSignature}` : '';
     
     // Generate authorization header using the same method as uploadandscan-action
     if ( debug == "true" ){
