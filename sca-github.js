@@ -14,8 +14,11 @@ const util = require('./util');
 function formatAnnotationComment(annotation) {
     // Use UTC time to avoid timezone conversion issues
     const date = new Date(annotation.created).toISOString().replace('T', ' ').replace('Z', ' UTC');
+    // Check if action is APPROVED or APPROVE (both should show as APPROVED)
+    const isApproved = annotation.action === 'APPROVED' || annotation.action === 'APPROVE';
+    const isRejected = annotation.action === 'REJECTED' || annotation.action === 'REJECT';
     // Map all non-APPROVED/REJECTED actions to PROPOSAL for better readability
-    const displayAction = (annotation.action !== 'APPROVED' && annotation.action !== 'REJECTED') ? 'PROPOSAL' : annotation.action;
+    const displayAction = (isApproved || isRejected) ? (isApproved ? 'APPROVED' : 'REJECTED') : 'PROPOSAL';
     let comment = `## Veracode Mitigation - ${displayAction}
 
 **Action:** ${annotation.action}
@@ -24,7 +27,7 @@ function formatAnnotationComment(annotation) {
 **User:** ${annotation.user_name}`;
     
     // Add proposed mitigation message for actions that are neither APPROVED nor REJECTED
-    if (annotation.action !== 'APPROVED' && annotation.action !== 'REJECTED') {
+    if (!isApproved && !isRejected) {
         comment += `
 
 > **Note:** This is a proposed mitigation, please talk to your security team for approval.`;
@@ -90,20 +93,22 @@ function processAnnotations(annotations) {
     // Sort all annotations by created date (most recent first)
     const sortedAnnotations = annotations.sort((a, b) => new Date(b.created) - new Date(a.created));
     
-    // Find the most recent APPROVED or REJECTED annotation (these take precedence)
-    const mostRecentApprovedOrRejected = sortedAnnotations.find(ann => 
-        ann.action === 'APPROVED' || ann.action === 'REJECTED'
-    );
+    // Find the most recent APPROVED/APPROVE or REJECTED/REJECT annotation (these take precedence)
+    const mostRecentApprovedOrRejected = sortedAnnotations.find(ann => {
+        const action = ann.action.toUpperCase();
+        return action === 'APPROVED' || action === 'APPROVE' || action === 'REJECTED' || action === 'REJECT';
+    });
     
-    // If we have an APPROVED or REJECTED annotation, use it to determine the action
+    // If we have an APPROVED/APPROVE or REJECTED/REJECT annotation, use it to determine the action
     if (mostRecentApprovedOrRejected) {
-        if (mostRecentApprovedOrRejected.action === 'APPROVED') {
+        const action = mostRecentApprovedOrRejected.action.toUpperCase();
+        if (action === 'APPROVED' || action === 'APPROVE') {
             return { 
                 action: 'close', 
                 annotations: sortedAnnotations,
                 mostRecent: mostRecentApprovedOrRejected
             };
-        } else if (mostRecentApprovedOrRejected.action === 'REJECTED') {
+        } else if (action === 'REJECTED' || action === 'REJECT') {
             return { 
                 action: 'reopen', 
                 annotations: sortedAnnotations,

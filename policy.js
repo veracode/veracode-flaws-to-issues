@@ -292,7 +292,7 @@ async function processExistingIssueWithAnnotations(flaw, issue_number, issueStat
                     repo: options.githubRepo,
                     issue_number: issue_number,
                     labels: currentLabels
-                });
+            });
             }
         }
         
