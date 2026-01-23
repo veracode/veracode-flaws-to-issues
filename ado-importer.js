@@ -1880,14 +1880,35 @@ function formatSCADescriptionHTML(finding) {
     const cveName = finding.finding_details?.cve?.name || 'Unknown';
     const description = finding.description || 'No description available';
     const cvss = finding.finding_details?.cve?.cvss || 'N/A';
+    const cvss3 = finding.finding_details?.cve?.cvss3;
     const severity = finding.finding_details?.cve?.severity || 'Unknown';
     const cveHref = finding.finding_details?.cve?.href;
     const exploitability = finding.finding_details?.cve?.exploitability;
     const licenses = finding.finding_details?.licenses || [];
+    const componentPath = finding.finding_details?.component_path || [];
+    const firstFoundDate = finding.finding_status?.first_found_date;
+    const version = finding.finding_details?.version || 'Unknown';
 
-    let desc = `<b>${componentFilename} - ${cveName}</b><br><br>`;
+    // Start with header
+    let desc = `<b>Description</b><br><br>`;
+    
+    // CVE ID and Component
+    desc += `<b>CVE ID:</b> ${cveName}<br>`;
+    desc += `<b>Vulnerable Component:</b> ${componentFilename}`;
+    if (version !== 'Unknown') {
+        desc += ` (version ${version})`;
+    }
+    desc += `<br><br>`;
+    
+    // Description
     desc += `${description}<br><br>`;
-    desc += `<b>CVSS Score:</b> ${cvss} - ${severity}<br><br>`;
+    
+    // CVSS Score
+    desc += `<b>CVSS Score:</b> ${cvss} - ${severity}`;
+    if (cvss3) {
+        desc += ` (CVSS v3: ${cvss3.score} - ${cvss3.severity})`;
+    }
+    desc += `<br><br>`;
 
     // Add EPSS information if available
     if (exploitability?.epss_percentile !== undefined && exploitability?.epss_score !== undefined) {
@@ -1906,6 +1927,34 @@ function formatSCADescriptionHTML(finding) {
         if (licenseIds.length > 0) {
             desc += `<b>License:</b> ${licenseIds.join(', ')}<br><br>`;
         }
+    }
+    
+    // Add vulnerability first found date
+    if (firstFoundDate) {
+        const formattedDate = new Date(firstFoundDate).toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+        desc += `<b>Vulnerability first found date:</b> ${formattedDate}<br><br>`;
+    }
+    
+    // Add file paths/component paths
+    if (componentPath && componentPath.length > 0) {
+        desc += `<b>File paths:</b><br>`;
+        componentPath.forEach((pathObj, index) => {
+            if (pathObj.path) {
+                desc += `${pathObj.path}`;
+                if (index < componentPath.length - 1) {
+                    desc += `<br>`;
+                }
+            }
+        });
+        desc += `<br><br>`;
+    }
+    
+    // Call to action
+    desc += `<b>You must fix this vulnerability to secure this component and your application.</b><br><br>`;
+    
+    // More information link (if CVE link is available)
+    if (cveHref) {
+        desc += `<a href="${cveHref}">More Information</a>`;
     }
 
     return desc;
