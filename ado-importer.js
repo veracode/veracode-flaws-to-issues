@@ -300,7 +300,7 @@ async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProjec
             try {
                 const url = `/${encodedOrg}/${encodedProject}/_apis/wit/wiql?api-version=${apiVersion}`;
                 const query = {
-                    query: `SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE [System.Tags] Contains 'Veracode' AND [System.TeamProject] = '${adoProject}' ORDER BY [System.ChangedDate] DESC`
+                    query: `SELECT [System.Id], [System.Title], [System.State], [System.Tags], [System.ChangedDate] FROM WorkItems WHERE ([System.Tags] Contains 'Veracode' OR [System.Title] Contains 'Veracode SCA' OR [System.Title] Contains 'Veracode Flaw') AND [System.TeamProject] = '${adoProject}' ORDER BY [System.ChangedDate] DESC`
                 };
 
                 if (debug === 'true') {
@@ -313,15 +313,19 @@ async function getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProjec
                 const workItemIds = response.data.workItems.map(wi => wi.id);
 
                 if (workItemIds.length === 0) {
-                    console.log(`No existing work items with Veracode tags found in project '${adoProject}'`);
+                    console.log(`No existing work items with Veracode tags or titles found in project '${adoProject}'`);
                     if (debug === 'true') {
                         console.log('Query executed successfully but returned no results');
                         console.log('This could mean:');
-                        console.log('  1. No work items exist with "Veracode" tag in this project');
+                        console.log('  1. No work items exist with "Veracode" tag or title in this project');
                         console.log('  2. The project name might be incorrect');
                         console.log('  3. The WIQL query syntax might need adjustment');
                     }
                     return [];
+                }
+                
+                if (debug === 'true') {
+                    console.log(`Found ${workItemIds.length} work item IDs from query`);
                 }
 
                 console.log(`Found ${workItemIds.length} existing work items with Veracode tags in project '${adoProject}' using API version ${apiVersion}`);
@@ -458,11 +462,26 @@ function createVeracodeFlawId(flaw, scanType) {
     }
 }
 
-function findExistingWorkItem(existingWorkItems, veracodeFlawId) {
-    // First, try exact match
+function findExistingWorkItem(existingWorkItems, veracodeFlawId, debug = false) {
+    if (debug === 'true') {
+        console.log(`  Searching for: "${veracodeFlawId}"`);
+        console.log(`  Checking ${existingWorkItems.length} existing work items`);
+    }
+    
+    // Normalize the flaw ID for comparison (trim whitespace)
+    const normalizedFlawId = veracodeFlawId.trim();
+    
+    // First, try exact match (case-insensitive, trimmed)
     let match = existingWorkItems.find(workItem => {
-        const title = workItem.fields['System.Title'] || '';
-        return title === veracodeFlawId || title.includes(veracodeFlawId);
+        const title = (workItem.fields['System.Title'] || '').trim();
+        const exactMatch = title === normalizedFlawId;
+        const includesMatch = title.includes(normalizedFlawId);
+        
+        if (debug === 'true' && (exactMatch || includesMatch)) {
+            console.log(`  ✓ Found exact/includes match: Work Item ${workItem.id} - "${title}"`);
+        }
+        
+        return exactMatch || includesMatch;
     });
 
     if (match) {
@@ -471,30 +490,64 @@ function findExistingWorkItem(existingWorkItems, veracodeFlawId) {
 
     // If no exact match, try more flexible matching
     // Extract the core parts of the flaw ID for comparison
-    const coreParts = extractCoreFlawParts(veracodeFlawId);
+    const coreParts = extractCoreFlawParts(normalizedFlawId);
     
-    return existingWorkItems.find(workItem => {
-        const title = workItem.fields['System.Title'] || '';
+    if (debug === 'true') {
+        console.log(`  No exact match found. Trying flexible matching with core parts: ${coreParts.join(', ')}`);
+    }
+    
+    const flexibleMatch = existingWorkItems.find(workItem => {
+        const title = (workItem.fields['System.Title'] || '').trim();
         const tags = workItem.fields['System.Tags'] || '';
         
         // Check if title contains Veracode and matches core parts
         // Handle both static scan (contains "flaw") and SCA (contains "SCA")
-        if (title.toLowerCase().includes('veracode')) {
-            if (title.toLowerCase().includes('sca')) {
+        const titleLower = title.toLowerCase();
+        if (titleLower.includes('veracode')) {
+            if (titleLower.includes('sca')) {
                 // For SCA findings, check if CVE and component match
-                return coreParts.every(part => 
-                    title.toLowerCase().includes(part.toLowerCase())
-                );
-            } else if (title.toLowerCase().includes('flaw')) {
+                // Both parts must be present in the title
+                const matches = coreParts.length > 0 && coreParts.every(part => {
+                    const partLower = part.toLowerCase().trim();
+                    return partLower && titleLower.includes(partLower);
+                });
+                
+                if (debug === 'true' && matches) {
+                    console.log(`  ✓ Found flexible SCA match: Work Item ${workItem.id} - "${title}"`);
+                    console.log(`    Matching parts: ${coreParts.join(', ')}`);
+                }
+                
+                return matches;
+            } else if (titleLower.includes('flaw')) {
                 // For static scan findings
-                return coreParts.every(part => 
-                    title.toLowerCase().includes(part.toLowerCase())
-                );
+                const matches = coreParts.length > 0 && coreParts.every(part => {
+                    const partLower = part.toLowerCase().trim();
+                    return partLower && titleLower.includes(partLower);
+                });
+                
+                if (debug === 'true' && matches) {
+                    console.log(`  ✓ Found flexible static match: Work Item ${workItem.id} - "${title}"`);
+                }
+                
+                return matches;
             }
         }
         
         return false;
     });
+    
+    if (debug === 'true' && !flexibleMatch) {
+        console.log(`  ✗ No match found for: "${normalizedFlawId}"`);
+        console.log(`    Checked ${existingWorkItems.length} work items`);
+        if (existingWorkItems.length > 0 && existingWorkItems.length <= 10) {
+            console.log(`    Existing work item titles:`);
+            existingWorkItems.forEach((wi, idx) => {
+                console.log(`      ${idx + 1}. ID ${wi.id}: "${wi.fields['System.Title']}"`);
+            });
+        }
+    }
+    
+    return flexibleMatch;
 }
 
 function extractCoreFlawParts(veracodeFlawId) {
@@ -1879,6 +1932,9 @@ function mapSCASeverity(cveSeverity) {
 async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, scaData, params) {
     const { source_base_path_1, source_base_path_2, source_base_path_3, commit_hash, waitTime, fail_build, debug, existingWorkItems, processedFlawIds, duplicateDetectionData, adoOpenState, adoCloseState, adoReopenState, sandboxName } = params;
     
+    // Track work items created in this run to prevent duplicates within the same run
+    const createdInThisRun = new Map(); // veracodeFlawId -> workItemId
+    
     let createdCount = 0;
     let reopenedCount = 0;
     let skippedCount = 0;
@@ -1906,8 +1962,25 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                 console.log(`Processing SCA finding with Veracode ID: ${veracodeFlawId} (Status: ${findingStatus}, Resolution Status: ${resolutionStatus}, Violates Policy: ${violatesPolicy})`);
             }
             
-            // Check if work item already exists
-            const existingWorkItem = findExistingWorkItem(existingWorkItems, veracodeFlawId);
+            // Check if work item already exists (from previous runs or created earlier in this run)
+            if (debug === 'true') {
+                console.log(`Checking for existing work item with ID: "${veracodeFlawId}"`);
+                console.log(`Total existing work items to check: ${existingWorkItems.length}`);
+                if (createdInThisRun.has(veracodeFlawId)) {
+                    console.log(`  Work item was created earlier in this run: ${createdInThisRun.get(veracodeFlawId)}`);
+                }
+            }
+            
+            // First check if we created it in this run
+            if (createdInThisRun.has(veracodeFlawId)) {
+                const workItemId = createdInThisRun.get(veracodeFlawId);
+                console.log(`Work item ${workItemId} was already created in this run for SCA finding ${veracodeFlawId} - skipping duplicate creation`);
+                skippedCount++;
+                continue;
+            }
+            
+            // Then check existing work items from previous runs
+            const existingWorkItem = findExistingWorkItem(existingWorkItems, veracodeFlawId, debug);
             
             if (existingWorkItem) {
                 const workItemState = existingWorkItem.fields['System.State'] || 'Unknown';
@@ -2199,6 +2272,9 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                     
                     const workItemId = response.data.id;
                     console.log(`Successfully created work item ${workItemId} for SCA finding`);
+                    
+                    // Track this work item as created in this run to prevent duplicates
+                    createdInThisRun.set(veracodeFlawId, workItemId);
                     
                     // Process annotations if present
                     if (finding.annotations && finding.annotations.length > 0) {
