@@ -1974,22 +1974,32 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                 }
                 
                 const isCurrentlyClosed = currentWorkItemState === 'Closed' || currentWorkItemState === 'Resolved' || currentWorkItemState === 'Done';
-                if (resolutionStatus === 'REJECTED' && isCurrentlyClosed) {
-                    console.log(`Reopening work item ${workItemId} for SCA finding - resolution_status is REJECTED`);
-                    const reopenComment = `The finding has been rejected on the Veracode platform`;
-                    await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
-                        source_base_path_1,
-                        source_base_path_2,
-                        source_base_path_3,
-                        commit_hash,
-                        debug,
-                        adoReopenState,
-                        sandboxName,
-                        reopenComment: reopenComment
-                    });
-                    
-                    // Wait between API calls to avoid rate limiting
-                    await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                const isCurrentlyOpen = !isCurrentlyClosed;
+                
+                // Handle REJECTED resolution_status - ensure work item is open
+                if (resolutionStatus === 'REJECTED') {
+                    if (isCurrentlyClosed) {
+                        console.log(`Reopening work item ${workItemId} for SCA finding - resolution_status is REJECTED`);
+                        const reopenComment = `The finding has been rejected on the Veracode platform`;
+                        await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
+                            source_base_path_1,
+                            source_base_path_2,
+                            source_base_path_3,
+                            commit_hash,
+                            debug,
+                            adoReopenState,
+                            sandboxName,
+                            reopenComment: reopenComment
+                        });
+                        
+                        // Wait between API calls to avoid rate limiting
+                        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+                    } else {
+                        // Work item is already open, which is correct for REJECTED status
+                        console.log(`Work item ${workItemId} is already open - correct state for REJECTED resolution_status`);
+                    }
+                    // Skip further status synchronization when resolution_status is REJECTED
+                    continue;
                 }
                 
                 // Synchronize work item state with finding status
@@ -2196,9 +2206,14 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                             debug
                         });
                         
-                        // If most recent annotation is APPROVED or finding is CLOSED, close the work item
+                        // Process annotations to determine action
                         const annotationResult = processAnnotationsADO(finding.annotations);
-                        if (annotationResult.action === 'close' || findingStatus === 'CLOSED') {
+                        
+                        // If resolution_status is REJECTED, keep work item open (don't close it)
+                        if (resolutionStatus === 'REJECTED') {
+                            console.log(`Keeping newly created work item ${workItemId} open - resolution_status is REJECTED`);
+                        } else if (annotationResult.action === 'close' || findingStatus === 'CLOSED') {
+                            // If most recent annotation is APPROVED or finding is CLOSED, close the work item
                             console.log(`Closing newly created work item ${workItemId} - most recent annotation is APPROVED or finding is CLOSED`);
                             const closeUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
                             const closePayload = [
@@ -2217,26 +2232,31 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                         }
                     } else if (findingStatus === 'CLOSED') {
                         // If finding is CLOSED but has no annotations, close the work item with a generic comment
-                        console.log(`Closing newly created work item ${workItemId} - finding is CLOSED`);
-                        const closeUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
-                        const closePayload = [
-                            {
-                                op: 'replace',
-                                path: '/fields/System.State',
-                                value: adoCloseState || 'Done'
-                            },
-                            {
-                                op: 'add',
-                                path: '/fields/System.History',
-                                value: 'Issue closed through Veracode Platform mitigation'
-                            }
-                        ];
-                        
-                        await adoPatchClient.patch(closeUrl, closePayload, {
-                            headers: {
-                                'Content-Type': 'application/json-patch+json'
-                            }
-                        });
+                        // Unless resolution_status is REJECTED, in which case keep it open
+                        if (resolutionStatus === 'REJECTED') {
+                            console.log(`Keeping newly created work item ${workItemId} open - resolution_status is REJECTED`);
+                        } else {
+                            console.log(`Closing newly created work item ${workItemId} - finding is CLOSED`);
+                            const closeUrl = `/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`;
+                            const closePayload = [
+                                {
+                                    op: 'replace',
+                                    path: '/fields/System.State',
+                                    value: adoCloseState || 'Done'
+                                },
+                                {
+                                    op: 'add',
+                                    path: '/fields/System.History',
+                                    value: 'Issue closed through Veracode Platform mitigation'
+                                }
+                            ];
+                            
+                            await adoPatchClient.patch(closeUrl, closePayload, {
+                                headers: {
+                                    'Content-Type': 'application/json-patch+json'
+                                }
+                            });
+                        }
                     }
                     
                     createdCount++;
