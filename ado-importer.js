@@ -75,20 +75,27 @@ async function importFlawsToADO(params) {
         scanType = 'policy';
         console.log('This is a policy scan');
         if ('_embedded' in flawData) {
-            console.log('Flaws found to import!');
             flaws = flawData._embedded.findings || [];
+            if (flaws.length > 0) {
+                console.log(`Flaws found to import! (${flaws.length} static findings)`);
+            }
         } else {
             console.log('No flaws found to import!');
-            return;
+            flaws = [];
         }
     }
 
     if (flaws.length === 0) {
-        console.log('No flaws found to import!');
-        return;
+        console.log('No static flaws found to import!');
+        // Don't return early - SCA findings may still need to be processed
+        if (!includeSCA || !scaFile || !fs.existsSync(scaFile)) {
+            console.log('No SCA findings to process either. Exiting.');
+            return;
+        }
+        console.log('Continuing to process SCA findings...');
+    } else {
+        console.log(`Importing ${scanType} flaws into Azure DevOps. ${waitTime} seconds between imports (to handle rate limiting)`);
     }
-
-    console.log(`Importing ${scanType} flaws into Azure DevOps. ${waitTime} seconds between imports (to handle rate limiting)`);
 
     // Get existing work items to check for duplicates
     const existingWorkItems = await getExistingWorkItems(adoQueryClient, adoClient, adoOrg, adoProject, debug);
@@ -146,7 +153,9 @@ async function importFlawsToADO(params) {
     let skippedCount = 0;
     let closedCount = 0;
 
-    if (scanType === 'pipeline') {
+    // Only process static flaws if there are any
+    if (flaws.length > 0) {
+        if (scanType === 'pipeline') {
         const result = await processPipelineFlawsADO(adoPatchClient, adoQueryClient, adoClient, adoOrg, adoProject, adoWorkItemType, flawData, {
             source_base_path_1,
             source_base_path_2,
@@ -190,6 +199,9 @@ async function importFlawsToADO(params) {
         reopenedCount = result.reopenedCount;
         skippedCount = result.skippedCount;
         closedCount = result.closedCount;
+        }
+    } else {
+        console.log('Skipping static flaws processing (no flaws found).');
     }
 
     // Process SCA findings if requested
