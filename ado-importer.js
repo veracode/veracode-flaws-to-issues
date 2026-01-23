@@ -499,10 +499,11 @@ function findExistingWorkItem(existingWorkItems, veracodeFlawId) {
 
 function extractCoreFlawParts(veracodeFlawId) {
     // Extract the key identifying parts from the flaw ID
-    // Handle both static scan format [VID:flawNumber] and SCA format Veracode SCA: CVE-NAME - COMPONENT
-    if (veracodeFlawId.startsWith('Veracode SCA:')) {
+    // Handle both static scan format [VID:flawNumber] and SCA format Veracode SCA - CVE-NAME - COMPONENT
+    if (veracodeFlawId.startsWith('Veracode SCA - ') || veracodeFlawId.startsWith('Veracode SCA:')) {
         // For SCA: extract CVE name and component filename
-        const parts = veracodeFlawId.replace('Veracode SCA:', '').trim().split(' - ');
+        // Handle both formats: "Veracode SCA - CVE-NAME - COMPONENT" and "Veracode SCA: CVE-NAME - COMPONENT"
+        const parts = veracodeFlawId.replace(/^Veracode SCA[:\s-]+/, '').trim().split(' - ');
         return parts.filter(part => part && part !== 'Unknown');
     } else {
         // For static scans: Remove the [VID:] wrapper and split by colons
@@ -1810,11 +1811,12 @@ async function processPolicyFlawsADO(adoPatchClient, adoQueryClient, adoClient, 
 
 /**
  * Create a unique Veracode SCA finding ID for ADO
+ * This must match the title format used when creating work items: "Veracode SCA - CVE-NAME - COMPONENT"
  */
 function createSCAFindingID(finding) {
     const cveName = finding.finding_details?.cve?.name || 'Unknown';
     const componentFilename = finding.finding_details?.component_filename || 'Unknown';
-    return `Veracode SCA: ${cveName} - ${componentFilename}`;
+    return `Veracode SCA - ${cveName} - ${componentFilename}`;
 }
 
 /**
@@ -2308,7 +2310,7 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
             if (titleMatch) {
                 const cveName = titleMatch[1];
                 const componentFilename = titleMatch[2].trim();
-                const veracodeFlawId = `Veracode SCA: ${cveName} - ${componentFilename}`;
+                const veracodeFlawId = `Veracode SCA - ${cveName} - ${componentFilename}`;
                 
                 if (!processedFlawIds.has(veracodeFlawId)) {
                     console.log(`Closing work item ${workItem.id} - SCA finding no longer found in scan: "${title}"`);
