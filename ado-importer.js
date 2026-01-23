@@ -1430,20 +1430,22 @@ function processAnnotationsADO(annotations) {
     // Sort all annotations by created date (most recent first)
     const sortedAnnotations = annotations.sort((a, b) => new Date(b.created) - new Date(a.created));
     
-    // Find the most recent APPROVED or REJECTED annotation (these take precedence)
-    const mostRecentApprovedOrRejected = sortedAnnotations.find(ann => 
-        ann.action === 'APPROVED' || ann.action === 'REJECTED'
-    );
+    // Find the most recent APPROVED/APPROVE or REJECTED/REJECT annotation (these take precedence)
+    const mostRecentApprovedOrRejected = sortedAnnotations.find(ann => {
+        const action = ann.action.toUpperCase();
+        return action === 'APPROVED' || action === 'APPROVE' || action === 'REJECTED' || action === 'REJECT';
+    });
     
-    // If we have an APPROVED or REJECTED annotation, use it to determine the action
+    // If we have an APPROVED/APPROVE or REJECTED/REJECT annotation, use it to determine the action
     if (mostRecentApprovedOrRejected) {
-        if (mostRecentApprovedOrRejected.action === 'APPROVED') {
+        const action = mostRecentApprovedOrRejected.action.toUpperCase();
+        if (action === 'APPROVED' || action === 'APPROVE') {
             return { 
                 action: 'close', 
                 annotations: sortedAnnotations,
                 mostRecent: mostRecentApprovedOrRejected
             };
-        } else if (mostRecentApprovedOrRejected.action === 'REJECTED') {
+        } else if (action === 'REJECTED' || action === 'REJECT') {
             return { 
                 action: 'reopen', 
                 annotations: sortedAnnotations,
@@ -1452,7 +1454,7 @@ function processAnnotationsADO(annotations) {
         }
     }
     
-    // If no APPROVED or REJECTED annotations, use the most recent annotation for update
+    // If no APPROVED/APPROVE or REJECTED/REJECT annotations, use the most recent annotation for update
     const mostRecent = sortedAnnotations[0];
     return { 
         action: 'update', 
@@ -1880,13 +1882,14 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
         try {
             const veracodeFlawId = createSCAFindingID(finding);
             const findingStatus = finding.finding_status?.status || 'UNKNOWN';
+            const resolutionStatus = finding.finding_status?.resolution_status || 'NONE';
             const violatesPolicy = finding.violates_policy === true;
             
             // Track this finding as processed (regardless of status)
             processedFlawIds.add(veracodeFlawId);
             
             if (debug === 'true') {
-                console.log(`Processing SCA finding with Veracode ID: ${veracodeFlawId} (Status: ${findingStatus}, Violates Policy: ${violatesPolicy})`);
+                console.log(`Processing SCA finding with Veracode ID: ${veracodeFlawId} (Status: ${findingStatus}, Resolution Status: ${resolutionStatus}, Violates Policy: ${violatesPolicy})`);
             }
             
             // Check if work item already exists
@@ -1898,7 +1901,7 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                 const isClosedState = workItemState === 'Closed' || workItemState === 'Resolved' || workItemState === 'Done';
                 const isOpenState = !isClosedState;
                 
-                console.log(`Work item already exists for SCA finding (ID: ${workItemId}, State: ${workItemState}, Finding Status: ${findingStatus})`);
+                console.log(`Work item already exists for SCA finding (ID: ${workItemId}, State: ${workItemState}, Finding Status: ${findingStatus}, Resolution Status: ${resolutionStatus})`);
                 
                 // Handle annotations if present
                 if (finding.annotations && finding.annotations.length > 0) {
@@ -1908,7 +1911,7 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                         debug
                     });
                     
-                    // If most recent annotation is APPROVED, close the work item
+                    // Process annotations to determine action
                     const annotationResult = processAnnotationsADO(finding.annotations);
                     if (annotationResult.action === 'close' && isOpenState) {
                         console.log(`Closing work item ${workItemId} for SCA finding - most recent annotation is APPROVED`);
@@ -1926,7 +1929,55 @@ async function processSCAFindingsADO(adoPatchClient, adoQueryClient, adoClient, 
                                 'Content-Type': 'application/json-patch+json'
                             }
                         });
+                    } else if (annotationResult.action === 'reopen' && isClosedState) {
+                        // If most recent annotation is REJECTED, reopen the work item
+                        console.log(`Reopening work item ${workItemId} for SCA finding - most recent annotation is REJECTED`);
+                        const reopenComment = `The finding has been rejected on the Veracode platform`;
+                        await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
+                            source_base_path_1,
+                            source_base_path_2,
+                            source_base_path_3,
+                            commit_hash,
+                            debug,
+                            adoReopenState,
+                            sandboxName,
+                            reopenComment: reopenComment
+                        });
+                        
+                        // Wait between API calls to avoid rate limiting
+                        await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
                     }
+                }
+                
+                // Also check resolution_status for REJECTED (in case there are no annotations or annotations haven't been processed yet)
+                // Get current work item state after annotation processing
+                let currentWorkItemState = workItemState;
+                if (finding.annotations && finding.annotations.length > 0) {
+                    try {
+                        const currentWorkItem = await adoClient.get(`/${adoOrg}/${adoProject}/_apis/wit/workitems/${workItemId}?api-version=7.0`);
+                        currentWorkItemState = currentWorkItem.data.fields['System.State'] || workItemState;
+                    } catch (error) {
+                        console.warn(`Failed to fetch current work item state: ${error.message}`);
+                    }
+                }
+                
+                const isCurrentlyClosed = currentWorkItemState === 'Closed' || currentWorkItemState === 'Resolved' || currentWorkItemState === 'Done';
+                if (resolutionStatus === 'REJECTED' && isCurrentlyClosed) {
+                    console.log(`Reopening work item ${workItemId} for SCA finding - resolution_status is REJECTED`);
+                    const reopenComment = `The finding has been rejected on the Veracode platform`;
+                    await reopenWorkItem(adoPatchClient, adoOrg, adoProject, workItemId, {
+                        source_base_path_1,
+                        source_base_path_2,
+                        source_base_path_3,
+                        commit_hash,
+                        debug,
+                        adoReopenState,
+                        sandboxName,
+                        reopenComment: reopenComment
+                    });
+                    
+                    // Wait between API calls to avoid rate limiting
+                    await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
                 }
                 
                 // Synchronize work item state with finding status

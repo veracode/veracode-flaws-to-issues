@@ -319,15 +319,16 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
         
         const vid = createSCAFindingID(finding);
         const findingStatus = finding.finding_status?.status || 'UNKNOWN';
+        const resolutionStatus = finding.finding_status?.resolution_status || 'NONE';
         const violatesPolicy = finding.violates_policy === true;
 
-        console.debug(`Processing SCA finding ${vid} (Status: ${findingStatus}, Violates Policy: ${violatesPolicy})`);
+        console.debug(`Processing SCA finding ${vid} (Status: ${findingStatus}, Resolution Status: ${resolutionStatus}, Violates Policy: ${violatesPolicy})`);
 
         // Check if issue already exists
         if (findingExists(vid)) {
             const issueNumber = getIssueNumber(vid);
             const issueState = getIssueState(vid);
-            console.log(`Issue already exists for ${vid} (Issue #${issueNumber}, State: ${issueState}, Finding Status: ${findingStatus})`);
+            console.log(`Issue already exists for ${vid} (Issue #${issueNumber}, State: ${issueState}, Finding Status: ${findingStatus}, Resolution Status: ${resolutionStatus})`);
             
             // Handle annotations if present
             if (finding.annotations && finding.annotations.length > 0) {
@@ -367,6 +368,103 @@ async function processSCAFindings(options, scaData, autoCloseFindings) {
                         state: 'closed',
                         state_reason: 'completed'
                     });
+                } else if (annotationResult.action === 'reopen' && issueState === 'closed') {
+                    // If most recent annotation is REJECTED, reopen the issue
+                    console.log(`Reopening issue #${issueNumber} for ${vid} - most recent annotation is REJECTED`);
+                    await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                        headers: { authorization: 'token ' + options.githubToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        issue_number: issueNumber,
+                        state: 'open'
+                    });
+                    
+                    // Add sandbox label if needed
+                    if (options.sandboxName) {
+                        const currentIssue = await request('GET /repos/{owner}/{repo}/issues/{issue_number}', {
+                            headers: { authorization: 'token ' + options.githubToken },
+                            owner: options.githubOwner,
+                            repo: options.githubRepo,
+                            issue_number: issueNumber
+                        });
+                        
+                        const currentLabels = currentIssue.data.labels.map(l => l.name);
+                        const sandboxLabel = `sandbox-${options.sandboxName}`;
+                        
+                        if (!currentLabels.includes(sandboxLabel)) {
+                            currentLabels.push(sandboxLabel);
+                            await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                                headers: { authorization: 'token ' + options.githubToken },
+                                owner: options.githubOwner,
+                                repo: options.githubRepo,
+                                issue_number: issueNumber,
+                                labels: currentLabels
+                            });
+                        }
+                    }
+                    
+                    // Rate limiting
+                    if (waitTime > 0) {
+                        await util.sleep(waitTime * 1000);
+                    }
+                }
+            }
+            
+            // Also check resolution_status for REJECTED (in case there are no annotations or annotations haven't been processed yet)
+            // Get current issue state after annotation processing to avoid duplicate operations
+            let currentIssueState = issueState;
+            if (finding.annotations && finding.annotations.length > 0) {
+                // Re-fetch issue state after annotation processing
+                try {
+                    const currentIssue = await request('GET /repos/{owner}/{repo}/issues/{issue_number}', {
+                        headers: { authorization: 'token ' + options.githubToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        issue_number: issueNumber
+                    });
+                    currentIssueState = currentIssue.data.state;
+                } catch (error) {
+                    console.warn(`Failed to fetch current issue state: ${error.message}`);
+                }
+            }
+            
+            if (resolutionStatus === 'REJECTED' && currentIssueState === 'closed') {
+                console.log(`Reopening issue #${issueNumber} for ${vid} - resolution_status is REJECTED`);
+                await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                    headers: { authorization: 'token ' + options.githubToken },
+                    owner: options.githubOwner,
+                    repo: options.githubRepo,
+                    issue_number: issueNumber,
+                    state: 'open'
+                });
+                
+                // Add sandbox label if needed
+                if (options.sandboxName) {
+                    const currentIssue = await request('GET /repos/{owner}/{repo}/issues/{issue_number}', {
+                        headers: { authorization: 'token ' + options.githubToken },
+                        owner: options.githubOwner,
+                        repo: options.githubRepo,
+                        issue_number: issueNumber
+                    });
+                    
+                    const currentLabels = currentIssue.data.labels.map(l => l.name);
+                    const sandboxLabel = `sandbox-${options.sandboxName}`;
+                    
+                    if (!currentLabels.includes(sandboxLabel)) {
+                        currentLabels.push(sandboxLabel);
+                        await request('PATCH /repos/{owner}/{repo}/issues/{issue_number}', {
+                            headers: { authorization: 'token ' + options.githubToken },
+                            owner: options.githubOwner,
+                            repo: options.githubRepo,
+                            issue_number: issueNumber,
+                            labels: currentLabels
+                        });
+                    }
+                }
+                
+                // Rate limiting
+                if (waitTime > 0) {
+                    await util.sleep(waitTime * 1000);
                 }
             }
             
