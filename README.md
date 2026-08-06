@@ -139,7 +139,7 @@ If this is a new 'fine-grained, repository-scoped token' you will need to ensure
           name: filtered-results
 
       - name: import flaws as issues
-        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        uses: veracode/veracode-flaws-to-issues@v2
         with:
           scan-results-json: 'filtered_results.json'
 ```
@@ -191,7 +191,7 @@ If this is a new 'fine-grained, repository-scoped token' you will need to ensure
           path: /tmp
 
       - name: import flaws as issues
-        uses: veracode/veracode-flaws-to-issues@v2.1.19
+        uses: veracode/veracode-flaws-to-issues@v2
         with:
           scan-results-json: '/tmp/policy_flaws.json'
 ```
